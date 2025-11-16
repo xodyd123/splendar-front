@@ -31,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,9 +41,12 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,17 +55,19 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.splendar.domain.AppScreen
 import com.example.splendar.domain.AppScreen.CREATE_ROOM
+import com.example.splendar.domain.AppScreen.ENTER_AS_CREATOR
+import com.example.splendar.domain.AppScreen.JOIN_ROOM
 import com.example.splendar.domain.AppScreen.ROOM_LIST
 import com.example.splendar.domain.AppScreen.WAITING_ROOM
 import com.example.splendar.domain.GameRoom
 import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
+import com.example.splendar.domain.RoomStatus
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -78,56 +84,172 @@ import java.util.concurrent.TimeUnit
 class MainActivity : ComponentActivity() {
     private var stompSession: StompSession? = null
     private var collectorJob: Job? = null
+    private val json = Json { ignoreUnknownKeys = true }
 
+    private var isConnected by mutableStateOf(false)
     private var currentScreen by  mutableStateOf<AppScreen>(ROOM_LIST)
 
-    private var gameRooms by mutableStateOf(mutableListOf<GameRooms>())
+    private val gameRoomState = mutableStateListOf<GameRooms>()
+
+    private var currentRoom: GameRooms? by mutableStateOf(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            SplendarTheme {
-
-                val handleRoomClick : (GameRoom ) -> Unit = { createRoomObject ->
-                    lifecycleScope.launch {
-
-                        // ⭐️ 객체를 JSON 문자열로 변환 (직렬화)
-                        val jsonString = Json.encodeToString(createRoomObject)
-
-                        // ⭐️ 유효한 JSON 문자열을 전송
-                        val sendText = stompSession?.sendText("/app/add/room", jsonString)
-                    }
-                }
-
-                when(currentScreen){
-                    ROOM_LIST ->  RoomListScreen(gameRooms , onCreateRoomClick = { currentScreen = CREATE_ROOM } )
-                    CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle ->
-                        //currentUserId = nickname // 닉네임을 유저 ID로 저장
-                        println("새 방 생성 요청! 닉네임: $nickname, 방 제목: $roomTitle")
-                        val gameRoom = GameRoom(roomTitle, nickname)
-                        handleRoomClick(gameRoom)
-                        currentScreen = WAITING_ROOM
-                    })
-                    WAITING_ROOM -> GameWaitingRoomScreen(
-                        roomName = "스플렌더 방",
-                        users = listOf(
-                            GameUser(id = "1", username = "플레이어 1", isReady = true),
-                            GameUser(id = "2", username = "플레이어 2", isReady = false)
-                        ),
-
-                        // ⬅️ 2. onStartGameClick을 GameWaitingRoomScreen의 인자로 밖으로 빼냅니다.
-                        onStartGameClick = { }
-                    )
-
-                }
-            }
-        }
         lifecycleScope.launch {
             connectToStomp()
         }
+        setContent {
+            SplendarTheme {
+                if (!isConnected) {
+                    // 1. isConnected가 false일 때: 로딩 화면 표시
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("서버에 연결하고 방 목록을 불러오는 중...")
+                        CircularProgressIndicator() // 로딩 인디케이터 추가
+                    }
+                }
+                else {
+                    val handleRoomClick : (GameRoom ) -> Unit = { createRoomObject ->
+                        lifecycleScope.launch {
+                            val jsonString = json.encodeToString(createRoomObject)
+                            // stompSession은 connectToStomp에서 할당됨
+                            stompSession?.sendText("/app/add/room", jsonString)
+                        }
+                    }
+
+                    val userRoomClick : (GameRoom) -> Unit = { createRoomObject ->
+                        lifecycleScope.launch {
+                            val room = currentRoom
+                            if (room !=  null){
+                                val jsonString = json.encodeToString(createRoomObject)
+                                val destination = "/app/join/room/${room.roomId}"
+                                // stompSession은 connectToStomp에서 할당됨
+                                stompSession?.sendText(destination , jsonString)
+                            }
+
+                        }
+                    }
+
+                    when(currentScreen){
+                        ROOM_LIST ->  RoomListScreen(
+                            gameRoomState ,
+                            onCreateRoomClick = { currentScreen = CREATE_ROOM },
+                            onJoinRoomClick = { roomToJoin ->
+
+                                println("Room : $roomToJoin")
+                                currentRoom = roomToJoin
+
+                                currentScreen = JOIN_ROOM
+                            }
+
+                        )
+                        CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle ->
+                            println("새 방 생성 요청! 닉네임: $nickname, 방 제목: $roomTitle")
+                            val gameRoom = GameRoom(roomTitle, nickname , true)
+                            handleRoomClick(gameRoom)
+                            currentRoom = GameRooms(
+                                roomName = roomTitle,
+                                roomId = 0L, // 임시 ID
+                                roomStatus = RoomStatus.WAITING,
+                                nickname,
+                                playerCount = 1,
+
+                            )
+
+                            currentScreen = WAITING_ROOM
+
+
+
+                        })
+                        WAITING_ROOM -> {
+                            val room = currentRoom
+                            if(room!= null){
+                                GameWaitingRoomScreen(
+                                    roomName = room.roomName,
+                                    users = listOf(GameUser(0L , room.hostName ,false)),
+                                    onStartGameClick = { /* 게임 시작 로직 */ }
+                                )
+                            }
+
+
+                        }
+
+                        JOIN_ROOM -> {
+                            val room = currentRoom
+                            if (room != null){
+                                JoinRoom(onRoomCreated = { nickname ->
+                                    val gameRoom = GameRoom(room.roomName, nickname , false);
+                                    userRoomClick(gameRoom)
+                                    currentScreen = WAITING_ROOM
+
+                                })
+
+                            }
+
+                        }
+                        ENTER_AS_CREATOR -> {
+
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+    private suspend fun connectToStomp() {
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+
+        val stompClient = StompClient(OkHttpWebSocketClient(okHttpClient))
+
+        val url = "ws://10.0.2.2:8080/ws-connect"
+        val session: StompSession = stompClient.connect(url)
+
+        stompSession = session
+
+        val subscribeGameRoom = session.subscribeText("/topic/rooms")
+        val subscribeRoomUpdate = session.subscribeText("/topic/update/rooms")
+
+
+        collectorJob = lifecycleScope.launch {
+            subscribeGameRoom.collect { message: String ->
+                val updatedRoom  = json.decodeFromString<MutableList<GameRooms>>(message)
+                gameRoomState.clear()
+                gameRoomState.addAll(updatedRoom)
+
+            }
+        }
+
+        lifecycleScope.launch {
+            subscribeRoomUpdate.collect { message: String ->
+                val updatedRoom = json.decodeFromString<GameRooms>(message)
+                println("updatedRoom : $updatedRoom.roomId " )
+
+                gameRoomState.add(updatedRoom) ;
+
+            }
+        }
+        session.sendText("/app/rooms" , "")
+        isConnected = true
+
+
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        collectorJob?.cancel()
+        lifecycleScope.launch {
+            try {
+                stompSession?.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+}
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun GameWaitingRoomScreen(
@@ -136,7 +258,7 @@ class MainActivity : ComponentActivity() {
         onStartGameClick: () -> Unit,
     ) {
         val isGameStartEnabled = users.size == 2 && users.all { it.isReady }
-
+        println("roomName , $roomName" )
 
         Scaffold(
             topBar = {
@@ -188,10 +310,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * 개별 플레이어의 상태를 보여주는 카드 UI
-     * @param user 유저 정보 (null이면 "대기 중..." 슬롯 표시)
-     */
     @Composable
     fun PlayerCard(
         user: GameUser?,
@@ -232,7 +350,6 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 이름: 줄바꿈 2줄 허용 + 말줄임
                 Text(
                     text = user?.username ?: "대기 중",
                     fontWeight = FontWeight.Bold,
@@ -259,6 +376,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun PlayerSlots(users: List<GameUser>) {
+        println("users , $users" )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -266,58 +384,21 @@ class MainActivity : ComponentActivity() {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            users.map { user -> PlayerCard(user , modifier = Modifier.weight(1f))}
             // 각 슬롯을 화면 너비에 맞게 균등 분배. 작은 화면에서 이름이 잘리지 않도록 weight 사용.
-            PlayerCard(user = users.getOrNull(0), modifier = Modifier.weight(1f))
-            PlayerCard(user = users.getOrNull(1), modifier = Modifier.weight(1f))
+//            PlayerCard(user = users.getOrNull(0), modifier = Modifier.weight(1f))
+//            PlayerCard(user = users.getOrNull(1), modifier = Modifier.weight(1f))
         }
     }
-    private suspend fun connectToStomp() {
-        val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS)
-            .build()
-
-        val stompClient = StompClient(OkHttpWebSocketClient(okHttpClient))
-
-        // 에뮬레이터 → 로컬 서버 접속
-        val url = "ws://10.0.2.2:8080/ws-connect"
-        val session: StompSession = stompClient.connect(url)
-        stompSession = session
-
-        val subscribeGameRoom = session.subscribeText("/topic/rooms")
-
-        collectorJob = lifecycleScope.launch {
-            subscribeGameRoom.collect { message: String ->
-                // 받은 메시지 JSON 파싱 후 상태 갱신
-                val newMessages = Json.decodeFromString<GameRooms>(message)
-                println("newMessages = ${newMessages}")
-                gameRooms = (gameRooms + newMessages) as MutableList<GameRooms>
-            }
-        }
 
 
 
-        // 테스트 메시지 전송
-        session.sendText("/app/chat", "안녕하세요 from Android client")
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        collectorJob?.cancel()
-        lifecycleScope.launch {
-            try {
-                stompSession?.disconnect()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-}
 
 @Composable
 fun  RoomListScreen(
-    rooms: List<GameRooms>,
-    onCreateRoomClick: (Enum<AppScreen>) -> Unit
+    rooms: MutableList<GameRooms>,
+    onCreateRoomClick: (Enum<AppScreen>) -> Unit,
+    onJoinRoomClick: (GameRooms) -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -356,6 +437,7 @@ fun  RoomListScreen(
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 if (rooms.isEmpty()) {
+
                     item {
                         // LazyColumn 높이에 맞춰 중앙 메시지 — 전체를 무한히 채우지 않도록 높이 제한
                         Box(
@@ -376,7 +458,7 @@ fun  RoomListScreen(
                         items = rooms,
                         key = { room -> room.roomId } // Room에 id가 있다고 가정
                     ) { room ->
-                        RoomCard(room = room, onClick = {})
+                        RoomCard(room = room, onClick = {onJoinRoomClick(room)})
                     }
                 }
             }
@@ -386,7 +468,7 @@ fun  RoomListScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateRoom(onRoomCreated: (String, String) -> Unit) {
+fun CreateRoom(onRoomCreated:  (String, String) -> Unit) {
 
     var nickname by remember { mutableStateOf("") }
 
@@ -437,6 +519,45 @@ fun CreateRoom(onRoomCreated: (String, String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun JoinRoom(onRoomCreated: (String) -> Unit) {
+
+    var nickname by remember { mutableStateOf("") }
+
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // --- 닉네임 입력 필드 ---
+        TextField(
+            value = nickname, // ⭐️ nickname 상태 사용
+            onValueChange = { nickname = it }, // ⭐️ nickname 상태 업데이트
+            label = { Text("닉네임을 입력해주세요") },
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+
+
+        val isButtonEnabled = nickname.isNotBlank()
+
+        Button(
+            onClick = {
+                onRoomCreated(nickname)
+            },
+            enabled = isButtonEnabled
+        ) {
+            Text("방 접속")
+        }
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun RoomCard(room: GameRooms , onClick: () -> Unit) {
     Card(
         onClick = onClick, // Material3 Card의 onClick 사용
@@ -474,7 +595,7 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text =  "참여 인원 : ${1}/2", // 나중에 수정
+                    text =  "참여 인원 : ${room.playerCount}/2", // 나중에 수정
                     style = MaterialTheme.typography.bodySmall,
                 )
 

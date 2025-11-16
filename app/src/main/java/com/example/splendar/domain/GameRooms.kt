@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 data class GameRooms(val roomName : String ,
                      val roomId : Long ,
                      val roomStatus: RoomStatus ,
-                     val hostName : String
+                     val hostName : String ,
+                     val playerCount : Int
 
     )
