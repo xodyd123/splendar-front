@@ -1,66 +1,23 @@
+// MainActivity.kt (수정된 버전)
 package com.example.splendar
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.splendar.domain.AppScreen
 import com.example.splendar.domain.AppScreen.CREATE_ROOM
-
 import com.example.splendar.domain.AppScreen.JOIN_ROOM
 import com.example.splendar.domain.AppScreen.ROOM_LIST
 import com.example.splendar.domain.AppScreen.WAITING_ROOM
@@ -70,9 +27,12 @@ import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
 import com.example.splendar.domain.PlayerDto
 import com.example.splendar.domain.RoomStatus
+import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
+import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
+import com.example.splendar.ui.CreateRoom // ⭐️ 분리된 UI import
+import com.example.splendar.ui.JoinRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -115,7 +75,7 @@ class MainActivity : ComponentActivity() {
                 if (!isConnected) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("서버에 연결하고 방 목록을 불러오는 중...")
-                        CircularProgressIndicator() // 로딩 인디케이터 추가
+                        CircularProgressIndicator()
                     }
                 } else {
                     val handleRoomClick: (CreateGameRoom) -> Unit = { createRoomObject ->
@@ -145,16 +105,18 @@ class MainActivity : ComponentActivity() {
                     }
 
                     when (currentScreen) {
-                        ROOM_LIST -> RoomListScreen(
-                            gameRoomState,
-                            onCreateRoomClick = { currentScreen = CREATE_ROOM },
+                        ROOM_LIST -> RoomListScreen( // ⭐️ 분리된 UI 사용
+                            rooms = gameRoomState, // MutableList<GameRooms>
+                            onCreateRoomClick = {
+                                currentScreen = CREATE_ROOM
+                            },
                             onJoinRoomClick = { roomToJoin ->
                                 currentRooms = roomToJoin
                                 currentScreen = JOIN_ROOM
                             }
                         )
 
-                        CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle ->
+                        CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle -> // ⭐️ 분리된 UI 사용
                             val createGameRoom = CreateGameRoom(roomTitle, nickname, true)
                             handleRoomClick(createGameRoom)
 
@@ -211,7 +173,7 @@ class MainActivity : ComponentActivity() {
                         JOIN_ROOM -> {
                             val room = currentRooms
                             if (room != null) {
-                                JoinRoom(onRoomCreated = { nickname ->
+                                JoinRoom(onRoomJoined = { nickname -> // ⭐️ 분리된 UI 사용
                                     val createGameRoom =
                                         CreateGameRoom(room.roomName, nickname, false)
 
@@ -230,6 +192,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // 통신 로직 (subscribeToRoom, connectToStomp, onDestroy)은 그대로 MainActivity에 유지됩니다.
+    // 참고: 이상적인 MVVM 아키텍처에서는 이 통신 로직들을 ViewModel로 옮겨야 합니다.
     private fun subscribeToRoom(roomId: Long) {
         roomSubscriptionJob?.cancel()
 
@@ -327,442 +291,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
-@Composable
-fun SimpleCountDownTimer(
-    totalSeconds: Int = 5,
-    onFinished: () -> Unit
-) {
-    // 1. 남은 시간을 관리하는 상태 변수
-    var timeLeft by remember { mutableIntStateOf(totalSeconds) }
-
-    // 2. 타이머 로직 (비동기 실행)
-    LaunchedEffect(Unit) {
-        while (timeLeft > 0) {
-            delay(1000L) // 1초 대기
-            timeLeft--   // 시간 감소
-        }
-        // 3. 시간이 0이 되면 콜백 실행
-        onFinished()
-    }
-
-    // 4. UI 렌더링
-    Text(
-        text = if (timeLeft > 0) "게임 시작까지 ${timeLeft}초" else "게임 시작!",
-        // ⭐️ 수정: fontSize를 18.sp로 변경
-        fontSize = 18.sp,
-        fontWeight = FontWeight.Bold, // 'headlineLarge'의 볼드 속성을 대체
-        color = if (timeLeft <= 3) Color.Red else Color.Black
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun GameWaitingRoomScreen(
-    roomName: String,
-    users: List<GameUser>,
-    onStartGameClick: () -> Unit,
-) {
-    val isGameStartEnabled = (users.size > 1) && users.all { user -> user.isReady }
-    val isGameButton = users.isNotEmpty()
-
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(roomName, fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                PlayerSlots(users = users)
-            }
-
-
-            Button(
-                // 타이머가 작동 중에는 버튼 클릭을 막아야 안전합니다.
-                // 타이머 실행 중이거나(isGameStartEnabled) 유저가 없을 때는 비활성화해야 합니다.
-                onClick = onStartGameClick,
-                enabled = isGameButton && !isGameStartEnabled, // ⭐️ 중요: 타이머 시작 시 버튼 비활성화
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-            ) {
-                if (isGameStartEnabled) {
-                    // ⭐️ 조건 충족 시 CircularGameTimer 컴포저블 실행
-                    // 타이머가 0이 되면 onStartGameClick을 호출하여 화면 전환
-                    SimpleCountDownTimer(
-                        totalSeconds = 5,
-                        onFinished = onStartGameClick
-                    )
-                } else {
-                    // 조건 미충족 시 일반 텍스트 표시
-                    Text(
-                        text = "게임 준비",
-                        fontSize = 18.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PlayerCard(
-    user: GameUser?,
-    modifier: Modifier = Modifier
-) {
-    val borderColor = when {
-        user == null -> MaterialTheme.colorScheme.outline
-        user.isReady -> Color(0xFF4CAF50)
-        else -> MaterialTheme.colorScheme.primary
-    }
-
-    Card(
-        modifier = modifier
-            .padding(8.dp)
-            .wrapContentHeight()
-            .widthIn(min = 120.dp, max = 220.dp),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(3.dp, borderColor),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(
-            modifier = Modifier
-                .padding(12.dp)
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "Player Avatar",
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .padding(12.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = user?.username ?: "대기 중",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = if (user?.isReady == true) "준비 완료" else if (user != null) "준비 중..." else "자리 비어있음",
-                color = borderColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-}
-
-@Composable
-fun PlayerSlots(users: List<GameUser>) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        users.map { user -> PlayerCard(user, modifier = Modifier.weight(1f)) }
-
-    }
-}
-
-
-@Composable
-fun RoomListScreen(
-    rooms: MutableList<GameRooms>,
-    onCreateRoomClick: (Enum<AppScreen>) -> Unit,
-    onJoinRoomClick: (GameRooms) -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Row() {
-                Text(
-                    text = "게임 방 목록",
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(bottom = 24.dp)
-                )
-
-                Button(
-                    onClick = {
-                        //println("방만들기 버튼 클릭")
-                        onCreateRoomClick(CREATE_ROOM)
-                    },
-                    modifier = Modifier.padding(start = 16.dp)
-                ) {
-                    Text("방 만들기")
-                }
-
-            }
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                if (rooms.isEmpty()) {
-
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "현재 개설된 방이 없습니다.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                } else {
-                    items(
-                        items = rooms,
-                        key = { room -> room.roomId }
-                    ) { room ->
-                        RoomCard(room = room, onClick = { onJoinRoomClick(room) })
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CreateRoom(onRoomCreated: (String, String) -> Unit) {
-
-    var nickname by remember { mutableStateOf("") }
-
-    var roomTitle by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("방 만들기", style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TextField(
-            value = nickname,
-            onValueChange = { nickname = it },
-            label = { Text("닉네임을 입력해주세요") },
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-
-        TextField(
-            value = roomTitle,
-            onValueChange = { roomTitle = it },
-            label = { Text("방 제목을 입력해주세요") },
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        val isButtonEnabled = nickname.isNotBlank() && roomTitle.isNotBlank()
-
-        Button(
-            onClick = {
-
-                onRoomCreated(nickname, roomTitle)
-            },
-            enabled = isButtonEnabled
-        ) {
-            Text("방 만들기")
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun JoinRoom(onRoomCreated: (String) -> Unit) {
-
-    var nickname by remember { mutableStateOf("") }
-
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        TextField(
-            value = nickname,
-            onValueChange = { nickname = it },
-            label = { Text("닉네임을 입력해주세요") },
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        val isButtonEnabled = nickname.isNotBlank()
-
-        Button(
-            onClick = {
-                onRoomCreated(nickname)
-            },
-            enabled = isButtonEnabled
-        ) {
-            Text("방 접속")
-        }
-    }
-}
-
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun RoomCard(room: GameRooms, onClick: () -> Unit) {
-    Card(
-        onClick = onClick, // Material3 Card의 onClick 사용
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(140.dp),
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "방 제목 : ${room.roomName}",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Text(
-                text = "방장 : ${room.hostName}",
-                style = MaterialTheme.typography.bodyMedium
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "참여 인원 : ${room.playerCount}/2",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
-                Icon(
-                    imageVector = Icons.Default.ArrowForward,
-                    contentDescription = "입장"
-                )
-            }
-        }
-    }
-
-    @Composable
-    fun PlayerCard(user: GameUser?) {
-
-        val borderColor = when {
-            user == null -> MaterialTheme.colorScheme.outline
-            user.isReady -> Color(0xFF4CAF50)
-            else -> MaterialTheme.colorScheme.primary
-        }
-
-        Card(
-            modifier = Modifier.size(width = 150.dp, height = 200.dp),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(3.dp, borderColor),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                if (user != null) {
-                    Image(
-                        painter = rememberVectorPainter(Icons.Default.Person),
-                        contentDescription = "Player Avatar",
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .padding(16.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = user.username,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = if (user.isReady) "준비 완료" else "준비 중...",
-                        color = borderColor,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else {
-                    Text(
-                        text = "플레이어\n대기 중...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        }
-    }
-
 }
