@@ -40,7 +40,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,6 +64,7 @@ import com.example.splendar.domain.AppScreen.CREATE_ROOM
 import com.example.splendar.domain.AppScreen.JOIN_ROOM
 import com.example.splendar.domain.AppScreen.ROOM_LIST
 import com.example.splendar.domain.AppScreen.WAITING_ROOM
+import com.example.splendar.domain.CreateGameRoom
 import com.example.splendar.domain.GameRoom
 import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
@@ -69,6 +72,7 @@ import com.example.splendar.domain.PlayerDto
 import com.example.splendar.domain.RoomStatus
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -88,11 +92,16 @@ class MainActivity : ComponentActivity() {
     private var roomSubscriptionJob: Job? = null
 
     private var isConnected by mutableStateOf(false)
-    private var currentScreen by  mutableStateOf<AppScreen>(ROOM_LIST)
+    private var currentScreen by mutableStateOf<AppScreen>(ROOM_LIST)
 
     private val gameRoomState = SnapshotStateList<GameRooms>()
 
-    private var currentRoom: GameRooms? by mutableStateOf(null)
+    private var currentRooms: GameRooms? by mutableStateOf(null)
+
+    private var currentRoom: GameRoom? by mutableStateOf(null)
+
+    private var currentRoomPlayerId: String? by mutableStateOf(null)
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
@@ -109,45 +118,58 @@ class MainActivity : ComponentActivity() {
                         CircularProgressIndicator() // 로딩 인디케이터 추가
                     }
                 } else {
-                    val handleRoomClick : (GameRoom ) -> Unit = { createRoomObject ->
+                    val handleRoomClick: (CreateGameRoom) -> Unit = { createRoomObject ->
                         lifecycleScope.launch {
                             val jsonString = json.encodeToString(createRoomObject)
                             stompSession?.sendText("/app/add/room", jsonString)
                         }
                     }
 
-                    val userRoomClick : (GameRoom ,Long) -> Unit = { createRoomObject , roomId ->
-                        println("gameRoom , $createRoomObject")
+                    val userRoomClick: (CreateGameRoom, Long) -> Unit =
+                        { createRoomObject, roomId ->
+                            lifecycleScope.launch {
+                                val jsonString = json.encodeToString(createRoomObject)
+                                val destination = "/app/join/room/${roomId}"
+                                stompSession?.sendText(destination, jsonString)
+                            }
+
+                        }
+
+                    val userReadyClick: (String, Long) -> Unit = { currentRoomPlayerId, roomId ->
                         lifecycleScope.launch {
-                            val jsonString = json.encodeToString(createRoomObject)
-                            val destination = "/app/join/room/${roomId}"
-                            stompSession?.sendText(destination , jsonString)
+                            val jsonString = json.encodeToString(currentRoomPlayerId)
+                            val destination = "/app/ready/room/${roomId}/${currentRoomPlayerId}"
+                            stompSession?.sendText(destination, jsonString)
                         }
 
                     }
 
-                    when(currentScreen){
+                    when (currentScreen) {
                         ROOM_LIST -> RoomListScreen(
                             gameRoomState,
                             onCreateRoomClick = { currentScreen = CREATE_ROOM },
                             onJoinRoomClick = { roomToJoin ->
-                                currentRoom = roomToJoin
+                                currentRooms = roomToJoin
                                 currentScreen = JOIN_ROOM
                             }
                         )
 
                         CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle ->
-                            println("새 방 생성 요청! 닉네임: $nickname, 방 제목: $roomTitle")
-                            val gameRoom = GameRoom(roomTitle, nickname , true)
-                            handleRoomClick(gameRoom) // 1. 서버에 생성 요청
+                            val createGameRoom = CreateGameRoom(roomTitle, nickname, true)
+                            handleRoomClick(createGameRoom)
 
-                            currentRoom = GameRooms(
+                            currentRooms = GameRooms(
                                 roomName = roomTitle,
                                 roomId = 0L,
                                 roomStatus = RoomStatus.WAITING,
                                 hostName = nickname,
                                 playerCount = 1,
-                                players = listOf(PlayerDto(nickname = nickname, isReady = false))
+                                players = listOf(
+                                    PlayerDto(
+                                        nickname = nickname,
+                                        isReady = false,
+                                    )
+                                ),
                             )
 
                             currentScreen = WAITING_ROOM
@@ -155,11 +177,11 @@ class MainActivity : ComponentActivity() {
 
 
                         WAITING_ROOM -> {
-                            val room = currentRoom
-                            if(room != null){
+                            val room = currentRooms
+                            if (room != null) {
                                 val users = room.players.map { player ->
                                     GameUser(
-                                        id = 0L,
+                                        id = "playerId",
                                         username = player.nickname,
                                         isReady = player.isReady
                                     )
@@ -168,11 +190,18 @@ class MainActivity : ComponentActivity() {
                                 GameWaitingRoomScreen(
                                     roomName = room.roomName,
                                     users = users,
-                                    onStartGameClick = { /* 게임 시작 로직 */ }
+                                    onStartGameClick = {
+                                        userReadyClick(
+                                            currentRoomPlayerId as String,
+                                            room.roomId
+                                        )
+                                    }
                                 )
                             } else {
-                                // currentRoom이 null이면 로딩 표시 (방 생성/참여 응답 대기 중)
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Text("방 정보를 서버에서 불러오는 중...")
                                     CircularProgressIndicator()
                                 }
@@ -180,12 +209,13 @@ class MainActivity : ComponentActivity() {
                         }
 
                         JOIN_ROOM -> {
-                            val room = currentRoom
-                            if (room != null){
+                            val room = currentRooms
+                            if (room != null) {
                                 JoinRoom(onRoomCreated = { nickname ->
-                                    val gameRoom = GameRoom(room.roomName, nickname, false)
+                                    val createGameRoom =
+                                        CreateGameRoom(room.roomName, nickname, false)
 
-                                    userRoomClick(gameRoom, room.roomId)
+                                    userRoomClick(createGameRoom, room.roomId)
 
                                     subscribeToRoom(room.roomId)
 
@@ -203,13 +233,28 @@ class MainActivity : ComponentActivity() {
     private fun subscribeToRoom(roomId: Long) {
         roomSubscriptionJob?.cancel()
 
+
         roomSubscriptionJob = lifecycleScope.launch {
             val specificRoomTopic = "/topic/rooms/$roomId"
 
             try {
                 stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
-                    val updatedSpecificRoom = json.decodeFromString<GameRooms>(message)
-                    currentRoom = updatedSpecificRoom
+                    val updatedSpecificRoom = json.decodeFromString<GameRoom>(message)
+                    val gameRooms = GameRooms(
+                        updatedSpecificRoom.roomName,
+                        updatedSpecificRoom.roomId,
+                        updatedSpecificRoom.roomStatus,
+                        updatedSpecificRoom.hostName,
+                        updatedSpecificRoom.playerCount,
+                        updatedSpecificRoom.players
+                    )
+
+
+                    if (currentRoomPlayerId == null) {
+                        currentRoomPlayerId = updatedSpecificRoom.playerId
+                    }
+
+                    currentRooms = gameRooms
                 }
             } catch (e: Exception) {
                 println("구독 중 예외 발생: ${e.message}")
@@ -232,7 +277,7 @@ class MainActivity : ComponentActivity() {
 
         collectorJob = lifecycleScope.launch {
             session.subscribeText("/topic/rooms").collect { message: String ->
-                val updatedRoom  = json.decodeFromString<MutableList<GameRooms>>(message)
+                val updatedRoom = json.decodeFromString<MutableList<GameRooms>>(message)
                 gameRoomState.clear()
                 gameRoomState.addAll(updatedRoom)
             }
@@ -240,18 +285,33 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             session.subscribeText("/topic/update/rooms").collect { message: String ->
-                val createdRoom = json.decodeFromString<GameRooms>(message)
-                gameRoomState.add(createdRoom)
+                val createdRooms = json.decodeFromString<GameRoom>(message)
+                val gameRooms = GameRooms(
+                    createdRooms.roomName,
+                    createdRooms.roomId,
+                    createdRooms.roomStatus,
+                    createdRooms.hostName,
+                    createdRooms.playerCount,
+                    createdRooms.players
+                )
 
-                if (currentScreen == WAITING_ROOM && currentRoom?.roomId == 0L) {
-                    subscribeToRoom(createdRoom.roomId)
+                gameRoomState.add(gameRooms)
 
-                    currentRoom = createdRoom
+
+                if (currentScreen == WAITING_ROOM && currentRooms?.roomId == 0L) {
+                    subscribeToRoom(createdRooms.roomId)
+
+                    currentRooms = gameRooms
+                    if (currentRoomPlayerId == null) {
+                        currentRoomPlayerId = createdRooms.playerId
+                    }
+
+
                 }
             }
         }
 
-        session.sendText("/app/rooms" , "")
+        session.sendText("/app/rooms", "")
         isConnected = true
 
     }
@@ -268,6 +328,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+@Composable
+fun SimpleCountDownTimer(
+    totalSeconds: Int = 5,
+    onFinished: () -> Unit
+) {
+    // 1. 남은 시간을 관리하는 상태 변수
+    var timeLeft by remember { mutableIntStateOf(totalSeconds) }
+
+    // 2. 타이머 로직 (비동기 실행)
+    LaunchedEffect(Unit) {
+        while (timeLeft > 0) {
+            delay(1000L) // 1초 대기
+            timeLeft--   // 시간 감소
+        }
+        // 3. 시간이 0이 되면 콜백 실행
+        onFinished()
+    }
+
+    // 4. UI 렌더링
+    Text(
+        text = if (timeLeft > 0) "게임 시작까지 ${timeLeft}초" else "게임 시작!",
+        // ⭐️ 수정: fontSize를 18.sp로 변경
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold, // 'headlineLarge'의 볼드 속성을 대체
+        color = if (timeLeft <= 3) Color.Red else Color.Black
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -276,8 +363,8 @@ fun GameWaitingRoomScreen(
     users: List<GameUser>,
     onStartGameClick: () -> Unit,
 ) {
-    val isGameStartEnabled = users.size == 2 && users.all { it.isReady }
-    println("roomName , $roomName" )
+    val isGameStartEnabled = (users.size > 1) && users.all { user -> user.isReady }
+    val isGameButton = users.isNotEmpty()
 
     Scaffold(
         topBar = {
@@ -307,23 +394,29 @@ fun GameWaitingRoomScreen(
             }
 
 
-            Text(
-                text = if (isGameStartEnabled) "모두 준비 완료!" else "플레이어를 기다리는 중...",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(vertical = 8.dp)
-            )
-
-
             Button(
+                // 타이머가 작동 중에는 버튼 클릭을 막아야 안전합니다.
+                // 타이머 실행 중이거나(isGameStartEnabled) 유저가 없을 때는 비활성화해야 합니다.
                 onClick = onStartGameClick,
-                enabled = isGameStartEnabled,
+                enabled = isGameButton && !isGameStartEnabled, // ⭐️ 중요: 타이머 시작 시 버튼 비활성화
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
             ) {
-                Text(text = "게임 시작", fontSize = 18.sp)
+                if (isGameStartEnabled) {
+                    // ⭐️ 조건 충족 시 CircularGameTimer 컴포저블 실행
+                    // 타이머가 0이 되면 onStartGameClick을 호출하여 화면 전환
+                    SimpleCountDownTimer(
+                        totalSeconds = 5,
+                        onFinished = onStartGameClick
+                    )
+                } else {
+                    // 조건 미충족 시 일반 텍스트 표시
+                    Text(
+                        text = "게임 준비",
+                        fontSize = 18.sp
+                    )
+                }
             }
         }
     }
@@ -356,7 +449,6 @@ fun PlayerCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // 아바타 크기 축소 (원래 80.dp -> 64.dp)
             Icon(
                 imageVector = Icons.Default.Person,
                 contentDescription = "Player Avatar",
@@ -402,14 +494,14 @@ fun PlayerSlots(users: List<GameUser>) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        users.map { user -> PlayerCard(user , modifier = Modifier.weight(1f))}
+        users.map { user -> PlayerCard(user, modifier = Modifier.weight(1f)) }
 
     }
 }
 
 
 @Composable
-fun  RoomListScreen(
+fun RoomListScreen(
     rooms: MutableList<GameRooms>,
     onCreateRoomClick: (Enum<AppScreen>) -> Unit,
     onJoinRoomClick: (GameRooms) -> Unit
@@ -424,7 +516,7 @@ fun  RoomListScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxSize()
         ) {
-            Row(){
+            Row() {
                 Text(
                     text = "게임 방 목록",
                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
@@ -470,7 +562,7 @@ fun  RoomListScreen(
                         items = rooms,
                         key = { room -> room.roomId }
                     ) { room ->
-                        RoomCard(room = room, onClick = {onJoinRoomClick(room)})
+                        RoomCard(room = room, onClick = { onJoinRoomClick(room) })
                     }
                 }
             }
@@ -480,7 +572,7 @@ fun  RoomListScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateRoom(onRoomCreated:  (String, String) -> Unit) {
+fun CreateRoom(onRoomCreated: (String, String) -> Unit) {
 
     var nickname by remember { mutableStateOf("") }
 
@@ -565,7 +657,7 @@ fun JoinRoom(onRoomCreated: (String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomCard(room: GameRooms , onClick: () -> Unit) {
+fun RoomCard(room: GameRooms, onClick: () -> Unit) {
     Card(
         onClick = onClick, // Material3 Card의 onClick 사용
         modifier = Modifier
@@ -592,7 +684,7 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
             )
 
             Text(
-                text = "방장 : ${room.hostName}" ,
+                text = "방장 : ${room.hostName}",
                 style = MaterialTheme.typography.bodyMedium
             )
 
@@ -602,7 +694,7 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text =  "참여 인원 : ${room.playerCount}/2", // 나중에 수정
+                    text = "참여 인원 : ${room.playerCount}/2",
                     style = MaterialTheme.typography.bodySmall,
                 )
 

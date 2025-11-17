@@ -1,8 +1,8 @@
 package com.example.splendar.domain
 
 data class GameUser(
-    val id: Long,
+    val id: String,
     val username: String,
-    val isReady: Boolean = false ,
+    val isReady: Boolean = false,
 
 )
