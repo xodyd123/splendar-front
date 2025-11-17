@@ -41,8 +41,6 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,13 +58,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.example.splendar.domain.AppScreen
 import com.example.splendar.domain.AppScreen.CREATE_ROOM
-import com.example.splendar.domain.AppScreen.ENTER_AS_CREATOR
+
 import com.example.splendar.domain.AppScreen.JOIN_ROOM
 import com.example.splendar.domain.AppScreen.ROOM_LIST
 import com.example.splendar.domain.AppScreen.WAITING_ROOM
 import com.example.splendar.domain.GameRoom
 import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
+import com.example.splendar.domain.PlayerDto
 import com.example.splendar.domain.RoomStatus
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
@@ -86,10 +85,12 @@ class MainActivity : ComponentActivity() {
     private var collectorJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
 
+    private var roomSubscriptionJob: Job? = null
+
     private var isConnected by mutableStateOf(false)
     private var currentScreen by  mutableStateOf<AppScreen>(ROOM_LIST)
 
-    private val gameRoomState = mutableStateListOf<GameRooms>()
+    private val gameRoomState = SnapshotStateList<GameRooms>()
 
     private var currentRoom: GameRooms? by mutableStateOf(null)
 
@@ -103,93 +104,94 @@ class MainActivity : ComponentActivity() {
         setContent {
             SplendarTheme {
                 if (!isConnected) {
-                    // 1. isConnected가 false일 때: 로딩 화면 표시
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("서버에 연결하고 방 목록을 불러오는 중...")
                         CircularProgressIndicator() // 로딩 인디케이터 추가
                     }
-                }
-                else {
+                } else {
                     val handleRoomClick : (GameRoom ) -> Unit = { createRoomObject ->
                         lifecycleScope.launch {
                             val jsonString = json.encodeToString(createRoomObject)
-                            // stompSession은 connectToStomp에서 할당됨
                             stompSession?.sendText("/app/add/room", jsonString)
                         }
                     }
 
-                    val userRoomClick : (GameRoom) -> Unit = { createRoomObject ->
+                    val userRoomClick : (GameRoom ,Long) -> Unit = { createRoomObject , roomId ->
+                        println("gameRoom , $createRoomObject")
                         lifecycleScope.launch {
-                            val room = currentRoom
-                            if (room !=  null){
-                                val jsonString = json.encodeToString(createRoomObject)
-                                val destination = "/app/join/room/${room.roomId}"
-                                // stompSession은 connectToStomp에서 할당됨
-                                stompSession?.sendText(destination , jsonString)
-                            }
-
+                            val jsonString = json.encodeToString(createRoomObject)
+                            val destination = "/app/join/room/${roomId}"
+                            stompSession?.sendText(destination , jsonString)
                         }
+
                     }
 
                     when(currentScreen){
-                        ROOM_LIST ->  RoomListScreen(
-                            gameRoomState ,
+                        ROOM_LIST -> RoomListScreen(
+                            gameRoomState,
                             onCreateRoomClick = { currentScreen = CREATE_ROOM },
                             onJoinRoomClick = { roomToJoin ->
-
-                                println("Room : $roomToJoin")
                                 currentRoom = roomToJoin
-
                                 currentScreen = JOIN_ROOM
                             }
-
                         )
+
                         CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle ->
                             println("새 방 생성 요청! 닉네임: $nickname, 방 제목: $roomTitle")
                             val gameRoom = GameRoom(roomTitle, nickname , true)
-                            handleRoomClick(gameRoom)
+                            handleRoomClick(gameRoom) // 1. 서버에 생성 요청
+
                             currentRoom = GameRooms(
                                 roomName = roomTitle,
-                                roomId = 0L, // 임시 ID
+                                roomId = 0L,
                                 roomStatus = RoomStatus.WAITING,
-                                nickname,
+                                hostName = nickname,
                                 playerCount = 1,
-
+                                players = listOf(PlayerDto(nickname = nickname, isReady = false))
                             )
 
                             currentScreen = WAITING_ROOM
-
-
-
                         })
+
+
                         WAITING_ROOM -> {
                             val room = currentRoom
-                            if(room!= null){
+                            if(room != null){
+                                val users = room.players.map { player ->
+                                    GameUser(
+                                        id = 0L,
+                                        username = player.nickname,
+                                        isReady = player.isReady
+                                    )
+                                }
+
                                 GameWaitingRoomScreen(
                                     roomName = room.roomName,
-                                    users = listOf(GameUser(0L , room.hostName ,false)),
+                                    users = users,
                                     onStartGameClick = { /* 게임 시작 로직 */ }
                                 )
+                            } else {
+                                // currentRoom이 null이면 로딩 표시 (방 생성/참여 응답 대기 중)
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("방 정보를 서버에서 불러오는 중...")
+                                    CircularProgressIndicator()
+                                }
                             }
-
-
                         }
 
                         JOIN_ROOM -> {
                             val room = currentRoom
                             if (room != null){
                                 JoinRoom(onRoomCreated = { nickname ->
-                                    val gameRoom = GameRoom(room.roomName, nickname , false);
-                                    userRoomClick(gameRoom)
+                                    val gameRoom = GameRoom(room.roomName, nickname, false)
+
+                                    userRoomClick(gameRoom, room.roomId)
+
+                                    subscribeToRoom(room.roomId)
+
                                     currentScreen = WAITING_ROOM
-
                                 })
-
                             }
-
-                        }
-                        ENTER_AS_CREATOR -> {
-
                         }
 
                     }
@@ -197,6 +199,24 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun subscribeToRoom(roomId: Long) {
+        roomSubscriptionJob?.cancel()
+
+        roomSubscriptionJob = lifecycleScope.launch {
+            val specificRoomTopic = "/topic/rooms/$roomId"
+
+            try {
+                stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
+                    val updatedSpecificRoom = json.decodeFromString<GameRooms>(message)
+                    currentRoom = updatedSpecificRoom
+                }
+            } catch (e: Exception) {
+                println("구독 중 예외 발생: ${e.message}")
+            }
+        }
+    }
+
     private suspend fun connectToStomp() {
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -210,31 +230,29 @@ class MainActivity : ComponentActivity() {
 
         stompSession = session
 
-        val subscribeGameRoom = session.subscribeText("/topic/rooms")
-        val subscribeRoomUpdate = session.subscribeText("/topic/update/rooms")
-
-
         collectorJob = lifecycleScope.launch {
-            subscribeGameRoom.collect { message: String ->
+            session.subscribeText("/topic/rooms").collect { message: String ->
                 val updatedRoom  = json.decodeFromString<MutableList<GameRooms>>(message)
                 gameRoomState.clear()
                 gameRoomState.addAll(updatedRoom)
-
             }
         }
 
         lifecycleScope.launch {
-            subscribeRoomUpdate.collect { message: String ->
-                val updatedRoom = json.decodeFromString<GameRooms>(message)
-                println("updatedRoom : $updatedRoom.roomId " )
+            session.subscribeText("/topic/update/rooms").collect { message: String ->
+                val createdRoom = json.decodeFromString<GameRooms>(message)
+                gameRoomState.add(createdRoom)
 
-                gameRoomState.add(updatedRoom) ;
+                if (currentScreen == WAITING_ROOM && currentRoom?.roomId == 0L) {
+                    subscribeToRoom(createdRoom.roomId)
 
+                    currentRoom = createdRoom
+                }
             }
         }
+
         session.sendText("/app/rooms" , "")
         isConnected = true
-
 
     }
 
@@ -250,148 +268,144 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-    @OptIn(ExperimentalMaterial3Api::class)
-    @Composable
-    fun GameWaitingRoomScreen(
-        roomName: String,
-        users: List<GameUser>,
-        onStartGameClick: () -> Unit,
-    ) {
-        val isGameStartEnabled = users.size == 2 && users.all { it.isReady }
-        println("roomName , $roomName" )
 
-        Scaffold(
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = { Text(roomName, fontWeight = FontWeight.Bold) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GameWaitingRoomScreen(
+    roomName: String,
+    users: List<GameUser>,
+    onStartGameClick: () -> Unit,
+) {
+    val isGameStartEnabled = users.size == 2 && users.all { it.isReady }
+    println("roomName , $roomName" )
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text(roomName, fontWeight = FontWeight.Bold) },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            }
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f), // 중요: 남는 세로공간을 PlayerSlots에 할당
-                    contentAlignment = Alignment.Center
-                ) {
-                    PlayerSlots(users = users)
-                }
-
-
-                Text(
-                    text = if (isGameStartEnabled) "모두 준비 완료!" else "플레이어를 기다리는 중...",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(vertical = 8.dp)
-                )
-
-
-                Button(
-                    onClick = onStartGameClick,
-                    enabled = isGameStartEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                ) {
-                    Text(text = "게임 시작", fontSize = 18.sp)
-                }
-            }
+            )
         }
-    }
-
-    @Composable
-    fun PlayerCard(
-        user: GameUser?,
-        modifier: Modifier = Modifier
-    ) {
-        val borderColor = when {
-            user == null -> MaterialTheme.colorScheme.outline
-            user.isReady -> Color(0xFF4CAF50)
-            else -> MaterialTheme.colorScheme.primary
-        }
-
-        Card(
-            modifier = modifier
-                .padding(8.dp)
-                .wrapContentHeight() // 고정 height 제거
-                .widthIn(min = 120.dp, max = 220.dp), // 폭은 유연하게
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(3.dp, borderColor),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(12.dp)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                // 아바타 크기 축소 (원래 80.dp -> 64.dp)
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Player Avatar",
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .padding(12.dp)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = user?.username ?: "대기 중",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = if (user?.isReady == true) "준비 완료" else if (user != null) "준비 중..." else "자리 비어있음",
-                    color = borderColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-    }
-
-    @Composable
-    fun PlayerSlots(users: List<GameUser>) {
-        println("users , $users" )
-        Row(
+    ) { paddingValues ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            users.map { user -> PlayerCard(user , modifier = Modifier.weight(1f))}
-            // 각 슬롯을 화면 너비에 맞게 균등 분배. 작은 화면에서 이름이 잘리지 않도록 weight 사용.
-//            PlayerCard(user = users.getOrNull(0), modifier = Modifier.weight(1f))
-//            PlayerCard(user = users.getOrNull(1), modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                PlayerSlots(users = users)
+            }
+
+
+            Text(
+                text = if (isGameStartEnabled) "모두 준비 완료!" else "플레이어를 기다리는 중...",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(vertical = 8.dp)
+            )
+
+
+            Button(
+                onClick = onStartGameClick,
+                enabled = isGameStartEnabled,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Text(text = "게임 시작", fontSize = 18.sp)
+            }
         }
     }
+}
 
+@Composable
+fun PlayerCard(
+    user: GameUser?,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = when {
+        user == null -> MaterialTheme.colorScheme.outline
+        user.isReady -> Color(0xFF4CAF50)
+        else -> MaterialTheme.colorScheme.primary
+    }
 
+    Card(
+        modifier = modifier
+            .padding(8.dp)
+            .wrapContentHeight()
+            .widthIn(min = 120.dp, max = 220.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(3.dp, borderColor),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // 아바타 크기 축소 (원래 80.dp -> 64.dp)
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Player Avatar",
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(12.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = user?.username ?: "대기 중",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = if (user?.isReady == true) "준비 완료" else if (user != null) "준비 중..." else "자리 비어있음",
+                color = borderColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun PlayerSlots(users: List<GameUser>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        users.map { user -> PlayerCard(user , modifier = Modifier.weight(1f))}
+
+    }
+}
 
 
 @Composable
@@ -422,8 +436,7 @@ fun  RoomListScreen(
                     onClick = {
                         //println("방만들기 버튼 클릭")
                         onCreateRoomClick(CREATE_ROOM)
-                    }
-                    ,
+                    },
                     modifier = Modifier.padding(start = 16.dp)
                 ) {
                     Text("방 만들기")
@@ -439,7 +452,6 @@ fun  RoomListScreen(
                 if (rooms.isEmpty()) {
 
                     item {
-                        // LazyColumn 높이에 맞춰 중앙 메시지 — 전체를 무한히 채우지 않도록 높이 제한
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -456,7 +468,7 @@ fun  RoomListScreen(
                 } else {
                     items(
                         items = rooms,
-                        key = { room -> room.roomId } // Room에 id가 있다고 가정
+                        key = { room -> room.roomId }
                     ) { room ->
                         RoomCard(room = room, onClick = {onJoinRoomClick(room)})
                     }
@@ -484,33 +496,31 @@ fun CreateRoom(onRoomCreated:  (String, String) -> Unit) {
         Text("방 만들기", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(16.dp))
 
-        // --- 닉네임 입력 필드 ---
         TextField(
-            value = nickname, // ⭐️ nickname 상태 사용
-            onValueChange = { nickname = it }, // ⭐️ nickname 상태 업데이트
+            value = nickname,
+            onValueChange = { nickname = it },
             label = { Text("닉네임을 입력해주세요") },
             singleLine = true
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // --- 방 제목 입력 필드 ---
+
         TextField(
-            value = roomTitle, // ⭐️ roomTitle 상태 사용
-            onValueChange = { roomTitle = it }, // ⭐️ roomTitle 상태 업데이트
+            value = roomTitle,
+            onValueChange = { roomTitle = it },
             label = { Text("방 제목을 입력해주세요") },
             singleLine = true
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 버튼 활성화 조건: 두 필드 모두 비어있지 않을 때
         val isButtonEnabled = nickname.isNotBlank() && roomTitle.isNotBlank()
 
         Button(
             onClick = {
-                // ⭐️ 두 값을 모두 상위 컴포저블로 전달
+
                 onRoomCreated(nickname, roomTitle)
             },
-            enabled = isButtonEnabled // ⭐️ 두 상태를 모두 검사
+            enabled = isButtonEnabled
         ) {
             Text("방 만들기")
         }
@@ -531,16 +541,13 @@ fun JoinRoom(onRoomCreated: (String) -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // --- 닉네임 입력 필드 ---
         TextField(
-            value = nickname, // ⭐️ nickname 상태 사용
-            onValueChange = { nickname = it }, // ⭐️ nickname 상태 업데이트
+            value = nickname,
+            onValueChange = { nickname = it },
             label = { Text("닉네임을 입력해주세요") },
             singleLine = true
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-
 
         val isButtonEnabled = nickname.isNotBlank()
 
@@ -606,17 +613,14 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
             }
         }
     }
-    /**
-     * 개별 플레이어의 상태를 보여주는 카드 UI
-     * @param user 유저 정보 (null이면 "대기 중..." 슬롯 표시)
-     */
+
     @Composable
     fun PlayerCard(user: GameUser?) {
-        // 4. 준비 상태에 따라 카드 테두리 색상 변경
+
         val borderColor = when {
             user == null -> MaterialTheme.colorScheme.outline
-            user.isReady -> Color(0xFF4CAF50) // 준비 완료 (초록색)
-            else -> MaterialTheme.colorScheme.primary // 접속했으나 대기 중
+            user.isReady -> Color(0xFF4CAF50)
+            else -> MaterialTheme.colorScheme.primary
         }
 
         Card(
@@ -633,7 +637,6 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
                 verticalArrangement = Arrangement.Center
             ) {
                 if (user != null) {
-                    // --- 유저가 슬롯에 있을 때 ---
                     Image(
                         painter = rememberVectorPainter(Icons.Default.Person),
                         contentDescription = "Player Avatar",
@@ -653,14 +656,12 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // 5. 준비 상태 텍스트
                     Text(
                         text = if (user.isReady) "준비 완료" else "준비 중...",
                         color = borderColor,
                         fontWeight = FontWeight.Bold
                     )
                 } else {
-                    // --- 유저가 없을 때 (빈 슬롯) ---
                     Text(
                         text = "플레이어\n대기 중...",
                         style = MaterialTheme.typography.bodyLarge,
@@ -671,6 +672,5 @@ fun RoomCard(room: GameRooms , onClick: () -> Unit) {
             }
         }
     }
-
 
 }
