@@ -59,7 +59,6 @@ class MainActivity : ComponentActivity() {
 
     private var currentRooms: GameRooms? by mutableStateOf(null)
 
-    private var currentRoom: GameRoom? by mutableStateOf(null)
 
     private var currentRoomPlayerId: String? by mutableStateOf(null)
 

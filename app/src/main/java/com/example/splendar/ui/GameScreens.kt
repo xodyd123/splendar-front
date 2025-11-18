@@ -172,7 +172,7 @@ fun SplendorCard(
 ) {
     Box(
         modifier = modifier
-            .size(width = 80.dp, height = 110.dp)
+            .size(width = 70.dp, height = 100.dp)
             .background(Color.White, RoundedCornerShape(8.dp))
             .border(2.dp, getCardLevelColor(card.level), RoundedCornerShape(8.dp)) // 레벨 색상 적용
             .clickable(onClick = onClick) // 클릭 이벤트 적용
@@ -202,13 +202,13 @@ fun SplendorCard(
             }
 
             // [중간] 일러스트 자리
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(vertical = 4.dp)
-                    .background(getGemColor(card.bonusGem).copy(alpha = 0.2f))
-            )
+//            Box(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .weight(1f)
+//                    .padding(vertical = 4.dp)
+//                    .background(getGemColor(card.bonusGem).copy(alpha = 0.2f))
+//            )
 
             // [하단] 구매 비용
             Row(
@@ -236,7 +236,7 @@ fun NobleTile(
 ) {
     Box(
         modifier = modifier
-            .size(80.dp) // 정사각형
+            .size(70.dp) // 정사각형
             .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
             .border(2.dp, Color(0xFFFFD700), RoundedCornerShape(8.dp))
             .padding(6.dp)
@@ -294,7 +294,7 @@ fun CardRow(
         // 덱(Deck) 표시 (클릭하여 덱에서 가져오기 기능 등을 붙일 수 있음)
         Box(
             modifier = Modifier
-                .size(width = 80.dp, height = 110.dp)
+                .size(width = 80.dp, height = 80.dp)
                 .background(levelColor, RoundedCornerShape(8.dp))
                 .border(1.dp, Color.Gray, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
@@ -317,8 +317,7 @@ fun PlayerStatusPanel(
     Column(
         modifier = modifier
             .width(100.dp) // 플레이어 정보 패널 폭
-            .padding(8.dp)
-            .background(Color(0xFFE0E0E0), RoundedCornerShape(8.dp)),
+            .padding(8.dp),
         horizontalAlignment = Alignment.Start
     ) {
         // 닉네임 및 점수
@@ -329,9 +328,8 @@ fun PlayerStatusPanel(
         )
         Text(
             text = "점수: ${playerState.score}",
-            color = Color.Red,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 18.sp
+            fontSize = 14.sp
         )
 
         Spacer(Modifier.height(8.dp))
@@ -379,7 +377,7 @@ fun SafeGreetingWithBorders(
         // 중앙 정렬된 보드 영역 (3분할 Row)
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
 
