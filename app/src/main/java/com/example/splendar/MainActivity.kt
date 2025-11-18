@@ -2,6 +2,7 @@
 package com.example.splendar
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,20 +18,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.splendar.domain.AppScreen
-import com.example.splendar.domain.AppScreen.CREATE_ROOM
-import com.example.splendar.domain.AppScreen.JOIN_ROOM
-import com.example.splendar.domain.AppScreen.ROOM_LIST
-import com.example.splendar.domain.AppScreen.WAITING_ROOM
+import com.example.splendar.domain.AppScreen.*
 import com.example.splendar.domain.CreateGameRoom
 import com.example.splendar.domain.GameRoom
 import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
 import com.example.splendar.domain.PlayerDto
 import com.example.splendar.domain.RoomStatus
+import com.example.splendar.domain.game.GameState
+import com.example.splendar.domain.game.PlayerState
 import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.CreateRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.JoinRoom // ⭐️ 분리된 UI import
+import com.example.splendar.ui.SafeGreetingWithBorders
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -61,6 +62,8 @@ class MainActivity : ComponentActivity() {
     private var currentRoom: GameRoom? by mutableStateOf(null)
 
     private var currentRoomPlayerId: String? by mutableStateOf(null)
+
+    private var GameState: GameState? by mutableStateOf(null)
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,12 +104,19 @@ class MainActivity : ComponentActivity() {
                             val destination = "/app/ready/room/${roomId}/${currentRoomPlayerId}"
                             stompSession?.sendText(destination, jsonString)
                         }
+                    }
 
+                    val userGameClick: (Long) -> Unit = { roomId ->
+                        lifecycleScope.launch {
+                            val jsonString = json.encodeToString(roomId)
+                            val destination = "/app/game-screen/${roomId}"
+                            stompSession?.sendText(destination, jsonString)
+                        }
                     }
 
                     when (currentScreen) {
-                        ROOM_LIST -> RoomListScreen( // ⭐️ 분리된 UI 사용
-                            rooms = gameRoomState, // MutableList<GameRooms>
+                        ROOM_LIST -> RoomListScreen(
+                            rooms = gameRoomState,
                             onCreateRoomClick = {
                                 currentScreen = CREATE_ROOM
                             },
@@ -157,6 +167,11 @@ class MainActivity : ComponentActivity() {
                                             currentRoomPlayerId as String,
                                             room.roomId
                                         )
+                                    },
+                                    onChangeGameScreen = {
+                                        currentScreen = GAME_SCREEN
+                                        userGameClick(room.roomId)
+                                        initialGame(room.roomId)
                                     }
                                 )
                             } else {
@@ -173,7 +188,7 @@ class MainActivity : ComponentActivity() {
                         JOIN_ROOM -> {
                             val room = currentRooms
                             if (room != null) {
-                                JoinRoom(onRoomJoined = { nickname -> // ⭐️ 분리된 UI 사용
+                                JoinRoom(onRoomJoined = { nickname ->
                                     val createGameRoom =
                                         CreateGameRoom(room.roomName, nickname, false)
 
@@ -186,14 +201,71 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        GAME_SCREEN -> {
+                            val game = GameState
+                            if (game != null) {
+                                // 1. GameRoom에서 보드 데이터 추출
+                                val boardData = game.extractBoardData()
+
+                                // 2. 토큰 줍기 클릭 이벤트 핸들러 정의 (임시)
+                                val handlePickToken: (Int) -> Unit = { tokenIndex ->
+                                    // TODO: STOMP 메시지 전송 로직 구현 (토큰 줍기)
+                                    // 예: stompSession?.sendText("/app/pick/token/${room.roomId}", tokenIndex.toString())
+                                    Log.d("GameScreen", "Picked token at index: $tokenIndex")
+                                }
+
+                                // 3. SafeGreetingWithBorders 컴포넌트 호출
+                                SafeGreetingWithBorders(
+                                    nobleTiles = boardData.nobleTiles,
+                                    level3Cards = boardData.level3Cards,
+                                    level2Cards = boardData.level2Cards,
+                                    level1Cards = boardData.level1Cards,
+                                    tokens = boardData.tokens,
+                                    pickToken = handlePickToken,
+                                    players = boardData.playerState
+                                )
+                            } else {
+                                // GameRoom 데이터가 없을 경우
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("게임 데이터 준비 중...")
+                                    CircularProgressIndicator()
+                                }
+                            }
+
+                        }
+
+                        USER_GAME_CHOICE_SCREEN -> {
+
+                        }
+
                     }
                 }
             }
         }
     }
 
-    // 통신 로직 (subscribeToRoom, connectToStomp, onDestroy)은 그대로 MainActivity에 유지됩니다.
-    // 참고: 이상적인 MVVM 아키텍처에서는 이 통신 로직들을 ViewModel로 옮겨야 합니다.
+    private fun initialGame(roomId: Long) {
+        roomSubscriptionJob?.cancel()
+
+
+        roomSubscriptionJob = lifecycleScope.launch {
+            val specificRoomTopic = "/topic/game-screen/$roomId"
+
+            try {
+                stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
+                    val gamePlayerState = json.decodeFromString<GameState>(message)
+                    GameState = gamePlayerState
+
+                }
+            } catch (e: Exception) {
+                println("구독 중 예외 발생: ${e.message}")
+            }
+        }
+    }
+
     private fun subscribeToRoom(roomId: Long) {
         roomSubscriptionJob?.cancel()
 
@@ -274,6 +346,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+
+
 
         session.sendText("/app/rooms", "")
         isConnected = true
