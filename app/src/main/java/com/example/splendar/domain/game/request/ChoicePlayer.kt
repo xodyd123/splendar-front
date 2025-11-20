@@ -1,4 +1,4 @@
-package com.example.splendar.domain.game
+package com.example.splendar.domain.game.request
 
 import kotlinx.serialization.Serializable
 

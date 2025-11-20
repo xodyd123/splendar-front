@@ -27,15 +27,16 @@ import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
 import com.example.splendar.domain.PlayerDto
 import com.example.splendar.domain.RoomStatus
-import com.example.splendar.domain.game.ChoicePlayer
+import com.example.splendar.domain.game.request.ChoicePlayer
 import com.example.splendar.domain.game.GameScreen
 import com.example.splendar.domain.game.GameState
+import com.example.splendar.domain.game.GemType
+import com.example.splendar.domain.game.request.SelectedToken
 import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.CreateRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.JoinRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.SafeGreetingWithBorders
-import com.example.splendar.ui.ChoicePlayer
 import com.example.splendar.ui.GameChoiceScreen
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
@@ -133,8 +134,17 @@ class MainActivity : ComponentActivity() {
                             val destination = "/app/game-choice-screen/${choicePlayer.roomId}"
                             stompSession?.sendText(destination, jsonString)
                         }
+                    }
+
+                    val selectedToken: (SelectedToken) -> Unit = { selectedToken ->
+                        lifecycleScope.launch {
+                            val jsonString = json.encodeToString(selectedToken)
+                            val destination = "/app/game-action/select-token/${selectedToken}"
+                            stompSession?.sendText(destination, jsonString)
+                        }
 
                     }
+
 
 
                     when (currentScreen) {
@@ -226,14 +236,23 @@ class MainActivity : ComponentActivity() {
 
                         GAME_SCREEN -> {
                             val game = gameState
-                            if (game != null) {
+                            val playerId = currentRoomPlayerId
+                            if (game != null && playerId != null) {
                                 // 1. GameRoom에서 보드 데이터 추출
                                 val boardData = game.extractBoardData()
 
-                                val handlePickToken: (Int) -> Unit = { tokenIndex ->
-                                    // TODO: STOMP 메시지 전송 로직 구현 (토큰 줍기)
-                                    // 예: stompSession?.sendText("/app/pick/token/${room.roomId}", tokenIndex.toString())
-                                    Log.d("GameScreen", "Picked token at index: $tokenIndex")
+                                val handlePickToken: (GemType) -> Unit = { tokenType ->
+                                    lifecycleScope.launch {
+                                        val selectedToken = SelectedToken(
+                                            playerId,
+                                            game.currentPlayer.playerId,
+                                            tokenType
+                                        )
+                                        val jsonString = json.encodeToString(selectedToken)
+                                        val destination = "/app/game-action/select-token/${selectedToken}"
+                                        stompSession?.sendText(destination, jsonString)
+                                    }
+
                                 }
                                 if (currentGameView == GameScreen.BOARD_VIEW) {
                                     // 3. SafeGreetingWithBorders 컴포넌트 호출

@@ -24,7 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.splendar.domain.AppScreen
-import com.example.splendar.domain.game.ChoicePlayer
+import com.example.splendar.domain.game.request.ChoicePlayer
 import com.example.splendar.domain.game.GameState
 import com.example.splendar.domain.game.SplendorAction
 import kotlinx.coroutines.launch

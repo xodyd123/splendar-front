@@ -42,7 +42,8 @@ data class GameState(
                 Tokens(
                     count = count, // Map의 Value (토큰 개수)
                     size = TOKEN_SIZE, // 고정된 UI 크기
-                    color = getGemColor(gemType) // Map의 Key (GemType)를 Color로 변환
+                    color = getGemColor(gemType),
+                    gemType = gemType
                 )
             }
             .toList()

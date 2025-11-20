@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -85,8 +86,8 @@ fun TokenStackComponent(
 
 @Composable
 fun HorizontalStackCirclesPreview(
-    tokens: List<Tokens>, // 인자 이름을 'token' 대신 'tokens'로 변경하는 것이 더 자연스럽습니다.
-    pickToken: (num: Int) -> Unit
+    tokens: List<Tokens>,
+    pickToken: (gemType: GemType) -> Unit
 ) {
     // Column을 사용하여 토큰 더미들을 수직으로 배치
 
@@ -100,7 +101,7 @@ fun HorizontalStackCirclesPreview(
         tokens.forEachIndexed { index, token ->
             TokenStackComponent(
                 token = token,
-                onClick = { pickToken(index) } // 클릭 시 해당 토큰의 인덱스를 전달
+                onClick = { pickToken(token.gemType) } // 클릭 시 해당 토큰의 인덱스를 전달
             )
         }
     }
@@ -313,18 +314,20 @@ fun CardRow(
 
 @Composable
 fun PlayerStatusPanel(
-    playerState: PlayerState, // ⭐️ 인자명 변경 (player -> playerState)
+    playerState: PlayerState,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
-            .width(100.dp) // 플레이어 정보 패널 폭
+            .width(110.dp) // 폭을 약간 늘림
+            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp)) // 배경 추가
+            .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
             .padding(8.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        // 닉네임 및 점수
+        // [기존 코드] 닉네임, 점수
         Text(
-            text = playerState.player.playerName, // ⬅️ GamePlayer에서 닉네임 추출
+            text = playerState.player.playerName,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp
         )
@@ -336,27 +339,49 @@ fun PlayerStatusPanel(
 
         Spacer(Modifier.height(8.dp))
 
-        // 보유 보너스 표시 (bonuses 사용)
-        Text("보너스:", fontSize = 12.sp)
-        playerState.bonuses.filter { it.value > 0 }.forEach { (type, count) -> // ⬅️ bonuses 사용
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GemIcon(type = type, size = 10.dp)
-                Text("x $count", fontSize = 10.sp)
+        // [기존 코드] 보너스 표시
+        Text("카드 보너스:", fontSize = 11.sp, color = Color.Gray)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            playerState.bonuses.filter { it.value > 0 }.forEach { (type, count) ->
+                GemIcon(type = type, size = 10.dp) // 숫자 대신 아이콘만 나열하거나
+                // 공간이 좁으면 텍스트 생략
             }
         }
 
         Spacer(Modifier.height(8.dp))
+        Divider()
+        Spacer(Modifier.height(8.dp))
 
-        // 예약 카드 개수 (⚠️ PlayerState에 reservedCardsCount 필드가 없으므로, 토큰만 표시하거나 이 줄을 삭제해야 합니다.)
-        // 현재 PlayerState에는 예약 카드 개수가 없으므로, 이 줄은 주석 처리하거나 다른 정보를 표시해야 합니다.
-        // Text("예약 카드: ??", fontSize = 12.sp)
+        // 💎 [수정됨] 보유 토큰 표시 로직
+        Text("보유 토큰:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
-        // 💡 선택적으로 토큰 현황을 표시할 수도 있습니다.
-        // Text("토큰 개수:", fontSize = 12.sp)
-        // Text(playerState.tokens.values.sum().toString(), fontSize = 12.sp)
+        if (playerState.tokens.values.sum() == 0) {
+            Text("- 없음 -", fontSize = 10.sp, color = Color.Gray)
+        } else {
+            // 보유한 토큰만 리스트로 표시
+            playerState.tokens.filter { it.value > 0 }.forEach { (type, count) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 1.dp)
+                ) {
+                    GemIcon(type = type, size = 14.dp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("x $count", fontSize = 12.sp)
+                }
+            }
+        }
+
+        // 토큰 총 개수 (10개 제한 확인용)
+        Spacer(modifier = Modifier.height(4.dp))
+        val totalTokens = playerState.tokens.values.sum()
+        Text(
+            text = "총: $totalTokens / 10",
+            fontSize = 10.sp,
+            color = if (totalTokens > 10) Color.Red else Color.Gray,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
-
 @Composable
 fun SafeGreetingWithBorders(
     nobleTiles: List<StaticNoble>,
@@ -364,9 +389,13 @@ fun SafeGreetingWithBorders(
     level2Cards: List<StaticCard>,
     level1Cards: List<StaticCard>,
     tokens: List<Tokens>,
-    pickToken: (num: Int) -> Unit,
+    pickToken: (GemType) -> Unit,
     players: List<PlayerState>,
-    endTurn: () -> Unit
+    endTurn: () -> Unit,
+    // ⭐️ [추가 1] 현재 선택 중인 토큰 리스트 (ViewModel 등에서 받아와야 함)
+    selectedTokens: List<GemType> = listOf(GemType.GOLD, GemType.RUBY, GemType.GOLD),
+    onRemoveToken: (GemType) -> Unit = {}
+
 ) {
     Column(
         modifier = Modifier
@@ -417,18 +446,28 @@ fun SafeGreetingWithBorders(
                 PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
         }
+        // ⭐️ 수정된 패널에 콜백 전달
+        CurrentSelectionPanel(
+            selectedTokens = selectedTokens,
+            onRemoveToken = onRemoveToken // 전달
+        )
+
 
         // --- 턴 넘기기 버튼 ---
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = endTurn,
+            // 선택한 토큰이 없으면 버튼을 비활성화하거나 색상을 흐리게 할 수 있습니다.
+            enabled = selectedTokens.isNotEmpty(),
             modifier = Modifier
-                .fillMaxWidth(0.5f) // 중앙에 위치하도록 폭을 조절
-                .height(50.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
-            // enabled = ... (실제 턴 로직에 따라 활성화/비활성화)
+                .fillMaxWidth(0.6f)
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF6A1B9A),
+                disabledContainerColor = Color.Gray
+            )
         ) {
             Text(
                 text = "턴 넘기기",
@@ -436,6 +475,60 @@ fun SafeGreetingWithBorders(
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
+        }
+    }
+}
+
+@Composable
+fun CurrentSelectionPanel(
+    selectedTokens: List<GemType>,
+
+    onRemoveToken: (GemType) -> Unit
+) {
+    if (selectedTokens.isNotEmpty()) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp)
+                .background(Color(0xFFE3F2FD), RoundedCornerShape(12.dp))
+                .border(1.dp, Color(0xFF2196F3), RoundedCornerShape(12.dp))
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "이번 턴에 가져올 토큰 (${selectedTokens.size}/3)",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1565C0)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 선택한 토큰 아이콘 나열
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                selectedTokens.forEach { type ->
+                    // ⭐️ 아이콘을 Box로 감싸고 clickable 추가
+                    Box(
+                        modifier = Modifier
+                            .clickable { onRemoveToken(type) } // 클릭 시 해당 토큰 제거 요청
+                    ) {
+                        GemIcon(type = type, size = 32.dp)
+                        // (선택 사항) 우측 상단에 작은 '-' 나 'x' 표시를 겹쳐서 보여주면 더 직관적입니다.
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // (안내 문구 추가)
+            Text("아이콘을 클릭하면 다시 내려놓습니다", fontSize = 10.sp, color = Color.Gray)
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+
         }
     }
 }
