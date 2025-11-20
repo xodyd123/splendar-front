@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -25,15 +27,19 @@ import com.example.splendar.domain.GameRooms
 import com.example.splendar.domain.GameUser
 import com.example.splendar.domain.PlayerDto
 import com.example.splendar.domain.RoomStatus
+import com.example.splendar.domain.game.ChoicePlayer
+import com.example.splendar.domain.game.GameScreen
 import com.example.splendar.domain.game.GameState
-import com.example.splendar.domain.game.PlayerState
 import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.CreateRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.JoinRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.SafeGreetingWithBorders
+import com.example.splendar.ui.ChoicePlayer
+import com.example.splendar.ui.GameChoiceScreen
 import com.example.splendar.ui.theme.SplendarTheme
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -44,6 +50,7 @@ import org.hildan.krossbow.stomp.sendText
 import org.hildan.krossbow.stomp.subscribeText
 import org.hildan.krossbow.websocket.okhttp.OkHttpWebSocketClient
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 
 class MainActivity : ComponentActivity() {
     private var stompSession: StompSession? = null
@@ -62,8 +69,15 @@ class MainActivity : ComponentActivity() {
 
     private var currentRoomPlayerId: String? by mutableStateOf(null)
 
-    private var GameState: GameState? by mutableStateOf(null)
+    private var gameState: GameState? by mutableStateOf(null)
 
+    private var currentGameView: GameScreen by mutableStateOf(GameScreen.BOARD_VIEW)
+
+    private var latestActionMessage: String? by mutableStateOf(null)
+
+    val onMessageConsumed: () -> Unit = {
+        latestActionMessage = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
@@ -113,6 +127,16 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    val sendChoiceAction: (ChoicePlayer) -> Unit = { choicePlayer ->
+                        lifecycleScope.launch {
+                            val jsonString = json.encodeToString(choicePlayer)
+                            val destination = "/app/game-choice-screen/${choicePlayer.roomId}"
+                            stompSession?.sendText(destination, jsonString)
+                        }
+
+                    }
+
+
                     when (currentScreen) {
                         ROOM_LIST -> RoomListScreen(
                             rooms = gameRoomState,
@@ -125,7 +149,7 @@ class MainActivity : ComponentActivity() {
                             }
                         )
 
-                        CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle -> // ⭐️ 분리된 UI 사용
+                        CREATE_ROOM -> CreateRoom(onRoomCreated = { nickname, roomTitle ->
                             val createGameRoom = CreateGameRoom(roomTitle, nickname, true)
                             handleRoomClick(createGameRoom)
 
@@ -201,19 +225,26 @@ class MainActivity : ComponentActivity() {
                         }
 
                         GAME_SCREEN -> {
-                            val game = GameState
+                            val game = gameState
                             if (game != null) {
                                 // 1. GameRoom에서 보드 데이터 추출
                                 val boardData = game.extractBoardData()
 
-                                // 2. 토큰 줍기 클릭 이벤트 핸들러 정의 (임시)
                                 val handlePickToken: (Int) -> Unit = { tokenIndex ->
                                     // TODO: STOMP 메시지 전송 로직 구현 (토큰 줍기)
                                     // 예: stompSession?.sendText("/app/pick/token/${room.roomId}", tokenIndex.toString())
                                     Log.d("GameScreen", "Picked token at index: $tokenIndex")
                                 }
+                                if (currentGameView == GameScreen.BOARD_VIEW) {
+                                    // 3. SafeGreetingWithBorders 컴포넌트 호출
 
-                                // 3. SafeGreetingWithBorders 컴포넌트 호출
+                                    LaunchedEffect(Unit) {
+                                        delay(3000L)
+                                        currentGameView = GameScreen.PLAYER_CHOICE
+                                        currentScreen = AppScreen.USER_GAME_CHOICE_SCREEN
+                                    }
+
+                                }
                                 SafeGreetingWithBorders(
                                     nobleTiles = boardData.nobleTiles,
                                     level3Cards = boardData.level3Cards,
@@ -221,8 +252,11 @@ class MainActivity : ComponentActivity() {
                                     level1Cards = boardData.level1Cards,
                                     tokens = boardData.tokens,
                                     pickToken = handlePickToken,
-                                    players = boardData.playerState
+                                    players = boardData.playerState,
+                                    endTurn = {}
                                 )
+
+
                             } else {
                                 // GameRoom 데이터가 없을 경우
                                 Box(
@@ -237,7 +271,27 @@ class MainActivity : ComponentActivity() {
                         }
 
                         USER_GAME_CHOICE_SCREEN -> {
+                            val game = gameState
+                            val playerId = currentRoomPlayerId
 
+                            LaunchedEffect(game?.gameId) { // gameId가 바뀌면 재구독
+                                if (game != null) {
+                                    subscribeToChoiceGame(game.gameId)
+                                }
+                            }
+
+                            if (game != null && playerId != null) {
+                                GameChoiceScreen(
+                                    gameState = game,
+                                    currentRoomPlayerId = playerId,
+                                    handleScreenChange = { screen -> currentScreen = screen },
+                                    sendActionMessage = sendChoiceAction,
+                                    latestReceivedMessage = latestActionMessage,
+                                    onMessageConsumed = onMessageConsumed
+
+                                )
+
+                            }
                         }
 
                     }
@@ -256,11 +310,16 @@ class MainActivity : ComponentActivity() {
             try {
                 stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
                     val gamePlayerState = json.decodeFromString<GameState>(message)
-                    GameState = gamePlayerState
+                    gameState = gamePlayerState
 
                 }
+            } catch (e: CancellationException) {
+                // 코루틴 취소는 정상적인 종료이므로 무시하거나 디버그 로그만 남김
+                Log.d("Info", "구독이 정상적으로 취소되었습니다.")
+                throw e // ⭐️ 중요: 코루틴 시스템이 취소를 인지하도록 다시 던져줘야 함
             } catch (e: Exception) {
-                println("구독 중 예외 발생: ${e.message}")
+                // 진짜 에러만 여기서 처리
+                Log.e("Error", "진짜 에러 발생: ${e.message}")
             }
         }
     }
@@ -291,8 +350,35 @@ class MainActivity : ComponentActivity() {
 
                     currentRooms = gameRooms
                 }
+            } catch (e: CancellationException) {
+                // 코루틴 취소는 정상적인 종료이므로 무시하거나 디버그 로그만 남김
+                Log.d("Info", "구독이 정상적으로 취소되었습니다.")
+                throw e // ⭐️ 중요: 코루틴 시스템이 취소를 인지하도록 다시 던져줘야 함
             } catch (e: Exception) {
-                println("구독 중 예외 발생: ${e.message}")
+                // 진짜 에러만 여기서 처리
+                Log.e("Error", "진짜 에러 발생: ${e.message}")
+            }
+        }
+    }
+
+    private fun subscribeToChoiceGame(roomId: Int) {
+        roomSubscriptionJob?.cancel()
+
+
+        roomSubscriptionJob = lifecycleScope.launch {
+            val specificRoomTopic = "/topic/game-choice-screen/$roomId"
+
+            try {
+                stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
+                    latestActionMessage = message
+                }
+            } catch (e: CancellationException) {
+                // 코루틴 취소는 정상적인 종료이므로 무시하거나 디버그 로그만 남김
+                Log.d("Info", "구독이 정상적으로 취소되었습니다.")
+                throw e // ⭐️ 중요: 코루틴 시스템이 취소를 인지하도록 다시 던져줘야 함
+            } catch (e: Exception) {
+                // 진짜 에러만 여기서 처리
+                Log.e("Error", "진짜 에러 발생: ${e.message}")
             }
         }
     }
@@ -331,7 +417,6 @@ class MainActivity : ComponentActivity() {
                 )
 
                 gameRoomState.add(gameRooms)
-
 
                 if (currentScreen == WAITING_ROOM && currentRooms?.roomId == 0L) {
                     subscribeToRoom(createdRooms.roomId)

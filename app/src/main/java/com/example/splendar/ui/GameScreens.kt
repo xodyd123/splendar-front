@@ -20,6 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -363,9 +365,9 @@ fun SafeGreetingWithBorders(
     level1Cards: List<StaticCard>,
     tokens: List<Tokens>,
     pickToken: (num: Int) -> Unit,
-    players: List<PlayerState>, // ⭐️ 플레이어 상태 리스트
+    players: List<PlayerState>,
+    endTurn: () -> Unit
 ) {
-    // 최상위 Column에 스크롤 적용
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -374,18 +376,19 @@ fun SafeGreetingWithBorders(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 중앙 정렬된 보드 영역 (3분할 Row)
+        // 1. 중앙 정렬된 보드 영역 (3분할 Row)
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
 
+            // 왼쪽 플레이어 패널 (첫 번째 플레이어)
             players.getOrNull(0)?.let { pState ->
-                PlayerStatusPanel(playerState = pState) // ⬅️ playerState로 인자 전달
+                PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
 
-            // ⬇️ 2. 중앙 게임 보드 Column
+            // 2. 중앙 게임 보드 Column
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -409,10 +412,30 @@ fun SafeGreetingWithBorders(
                 HorizontalStackCirclesPreview(tokens = tokens, pickToken = pickToken)
             }
 
-
+            // 오른쪽 플레이어 패널 (두 번째 플레이어)
             players.getOrNull(1)?.let { pState ->
-                PlayerStatusPanel(playerState = pState) // ⬅️ playerState로 인자 전달
+                PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
+        }
+
+        // --- 턴 넘기기 버튼 ---
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = endTurn,
+            modifier = Modifier
+                .fillMaxWidth(0.5f) // 중앙에 위치하도록 폭을 조절
+                .height(50.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
+            // enabled = ... (실제 턴 로직에 따라 활성화/비활성화)
+        ) {
+            Text(
+                text = "턴 넘기기",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
         }
     }
 }

@@ -32,7 +32,7 @@ data class GameState(
     }
 
     fun mapAvailableTokensToUI(availableTokens: Map<GemType, Int>): List<Tokens> {
-        
+
         val TOKEN_SIZE: Dp = 48.dp
 
         // 2. Map을 순회하며 List<Tokens>로 변환합니다.
