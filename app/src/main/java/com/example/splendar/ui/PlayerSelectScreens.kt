@@ -36,7 +36,8 @@ fun GameChoiceScreen(
     handleScreenChange: (AppScreen) -> Unit, // 화면 전환 콜백
     sendActionMessage: (ChoicePlayer) -> Unit, // STOMP 전송 함수
     latestReceivedMessage: String?,
-    onMessageConsumed: () -> Unit
+    onMessageConsumed: () -> Unit,
+    screen: AppScreen
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -69,7 +70,7 @@ fun GameChoiceScreen(
             )
 
             // 2. Snackbar가 사라진 후 (코루틴 재개 후) 화면 전환
-            handleScreenChange(AppScreen.GAME_SCREEN)
+            handleScreenChange(screen)
 
             // 3. 상위 상태 초기화 (메시지 상태를 null로 만들어 다음 메시지를 받을 준비)
             onMessageConsumed()
@@ -100,7 +101,7 @@ fun ChoicePlayer(
     playerId: String,
     currentTurnID: String,
     playerName: String,
-    onActionSelected: (message: String) -> Unit
+    onActionSelected: (message: String) -> Unit,
 ) {
     val isOnClick = playerId == currentTurnID
     Box(

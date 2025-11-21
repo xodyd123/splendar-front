@@ -32,9 +32,11 @@ import com.example.splendar.domain.game.GameScreen
 import com.example.splendar.domain.game.GameState
 import com.example.splendar.domain.game.GemType
 import com.example.splendar.domain.game.request.SelectedToken
+import com.example.splendar.domain.game.response.SelectedPlayer
 import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.CreateRoom // ⭐️ 분리된 UI import
+import com.example.splendar.ui.CurrentTokenSelectScreen
 import com.example.splendar.ui.JoinRoom // ⭐️ 분리된 UI import
 import com.example.splendar.ui.SafeGreetingWithBorders
 import com.example.splendar.ui.GameChoiceScreen
@@ -66,7 +68,6 @@ class MainActivity : ComponentActivity() {
     private val gameRoomState = SnapshotStateList<GameRooms>()
 
     private var currentRooms: GameRooms? by mutableStateOf(null)
-
 
     private var currentRoomPlayerId: String? by mutableStateOf(null)
 
@@ -263,17 +264,42 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = AppScreen.USER_GAME_CHOICE_SCREEN
                                     }
 
+                                    SafeGreetingWithBorders(
+                                        nobleTiles = boardData.nobleTiles,
+                                        level3Cards = boardData.level3Cards,
+                                        level2Cards = boardData.level2Cards,
+                                        level1Cards = boardData.level1Cards,
+                                        tokens = boardData.tokens,
+                                        pickToken = handlePickToken,
+                                        players = boardData.playerState,
+                                        endTurn = {},
+                                        // 상태랑
+                                        // 메제시로 받은 값
+                                    )
+
                                 }
-                                SafeGreetingWithBorders(
-                                    nobleTiles = boardData.nobleTiles,
-                                    level3Cards = boardData.level3Cards,
-                                    level2Cards = boardData.level2Cards,
-                                    level1Cards = boardData.level1Cards,
-                                    tokens = boardData.tokens,
-                                    pickToken = handlePickToken,
-                                    players = boardData.playerState,
-                                    endTurn = {}
-                                )
+
+                                if (currentGameView == GameScreen.TAKE_TOKENS) {
+                                    SafeGreetingWithBorders(
+                                        nobleTiles = boardData.nobleTiles,
+                                        level3Cards = boardData.level3Cards,
+                                        level2Cards = boardData.level2Cards,
+                                        level1Cards = boardData.level1Cards,
+                                        tokens = boardData.tokens,
+                                        pickToken = handlePickToken,
+                                        players = boardData.playerState,
+                                        endTurn = {},
+                                        // 상태랑
+                                        // 메제시로 받은 값
+                                        currentSelectToken = { selectedTokens, onRemoveToken ->
+                                            CurrentTokenSelectScreen(
+                                                selectedTokens = selectedTokens,
+                                                onRemoveToken = onRemoveToken
+                                            )
+                                        }
+                                    )
+
+                                }
 
 
                             } else {
@@ -306,8 +332,8 @@ class MainActivity : ComponentActivity() {
                                     handleScreenChange = { screen -> currentScreen = screen },
                                     sendActionMessage = sendChoiceAction,
                                     latestReceivedMessage = latestActionMessage,
-                                    onMessageConsumed = onMessageConsumed
-
+                                    onMessageConsumed = onMessageConsumed,
+                                    screen = AppScreen.GAME_SCREEN
                                 )
 
                             }
@@ -362,7 +388,6 @@ class MainActivity : ComponentActivity() {
                         updatedSpecificRoom.players
                     )
 
-
                     if (currentRoomPlayerId == null) {
                         currentRoomPlayerId = updatedSpecificRoom.playerId
                     }
@@ -389,7 +414,10 @@ class MainActivity : ComponentActivity() {
 
             try {
                 stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
-                    latestActionMessage = message
+                    val selectedPlayer = json.decodeFromString<SelectedPlayer>(message)
+                    latestActionMessage = selectedPlayer.splendorAction
+                    currentGameView = selectedPlayer.playerAction
+
                 }
             } catch (e: CancellationException) {
                 // 코루틴 취소는 정상적인 종료이므로 무시하거나 디버그 로그만 남김
@@ -449,10 +477,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-
-
-
         session.sendText("/app/rooms", "")
         isConnected = true
 

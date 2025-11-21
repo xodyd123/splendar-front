@@ -392,9 +392,11 @@ fun SafeGreetingWithBorders(
     pickToken: (GemType) -> Unit,
     players: List<PlayerState>,
     endTurn: () -> Unit,
-    // ⭐️ [추가 1] 현재 선택 중인 토큰 리스트 (ViewModel 등에서 받아와야 함)
-    selectedTokens: List<GemType> = listOf(GemType.GOLD, GemType.RUBY, GemType.GOLD),
-    onRemoveToken: (GemType) -> Unit = {}
+    currentSelectToken: (@Composable (
+        selectedTokens: List<GemType>,
+        onRemoveToken: (GemType) -> Unit
+    ) -> Unit)? = null,
+    test: List<GemType> = arrayListOf(GemType.GOLD),
 
 ) {
     Column(
@@ -446,11 +448,12 @@ fun SafeGreetingWithBorders(
                 PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
         }
+        currentSelectToken?.invoke(test, { gemType -> print("gg") })
         // ⭐️ 수정된 패널에 콜백 전달
-        CurrentSelectionPanel(
-            selectedTokens = selectedTokens,
-            onRemoveToken = onRemoveToken // 전달
-        )
+//        CurrentSelectionPanel(
+//            selectedTokens = selectedTokens,
+//            onRemoveToken = onRemoveToken // 전달
+//        )
 
 
         // --- 턴 넘기기 버튼 ---
@@ -459,7 +462,7 @@ fun SafeGreetingWithBorders(
         Button(
             onClick = endTurn,
             // 선택한 토큰이 없으면 버튼을 비활성화하거나 색상을 흐리게 할 수 있습니다.
-            enabled = selectedTokens.isNotEmpty(),
+            //  enabled = selectedTokens.isNotEmpty(),
             modifier = Modifier
                 .fillMaxWidth(0.6f)
                 .height(56.dp),
@@ -479,56 +482,3 @@ fun SafeGreetingWithBorders(
     }
 }
 
-@Composable
-fun CurrentSelectionPanel(
-    selectedTokens: List<GemType>,
-
-    onRemoveToken: (GemType) -> Unit
-) {
-    if (selectedTokens.isNotEmpty()) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-                .background(Color(0xFFE3F2FD), RoundedCornerShape(12.dp))
-                .border(1.dp, Color(0xFF2196F3), RoundedCornerShape(12.dp))
-                .padding(12.dp)
-        ) {
-            Text(
-                text = "이번 턴에 가져올 토큰 (${selectedTokens.size}/3)",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1565C0)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 선택한 토큰 아이콘 나열
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                selectedTokens.forEach { type ->
-                    // ⭐️ 아이콘을 Box로 감싸고 clickable 추가
-                    Box(
-                        modifier = Modifier
-                            .clickable { onRemoveToken(type) } // 클릭 시 해당 토큰 제거 요청
-                    ) {
-                        GemIcon(type = type, size = 32.dp)
-                        // (선택 사항) 우측 상단에 작은 '-' 나 'x' 표시를 겹쳐서 보여주면 더 직관적입니다.
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // (안내 문구 추가)
-            Text("아이콘을 클릭하면 다시 내려놓습니다", fontSize = 10.sp, color = Color.Gray)
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-
-        }
-    }
-}
