@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.splendar.domain.game.GamePlayer
 import com.example.splendar.domain.game.GemType
 import com.example.splendar.domain.game.PlayerState
 import com.example.splendar.domain.game.StaticCard
@@ -396,7 +397,13 @@ fun SafeGreetingWithBorders(
         selectedTokens: List<GemType>,
         onRemoveToken: (GemType) -> Unit
     ) -> Unit)? = null,
-    test: List<GemType> = arrayListOf(GemType.GOLD),
+    currentSelectCard: (@Composable (
+        cardToBuy: StaticCard,
+        playerState: PlayerState,
+        onConfirmPurchase: () -> Unit,
+        onCancel: () -> Unit
+    ) -> Unit)? = null,
+    test: List<GemType> = listOf<GemType>(GemType.GOLD)
 
 ) {
     Column(
@@ -454,6 +461,10 @@ fun SafeGreetingWithBorders(
 //            selectedTokens = selectedTokens,
 //            onRemoveToken = onRemoveToken // 전달
 //        )
+        currentSelectCard?.invoke(StaticCard(1, GemType.GOLD, 3, 1 ,
+            3,5,4,6,7),
+            PlayerState(GamePlayer("fr" ,"22"),5, mapOf(GemType.GOLD to 1) ,  mapOf(GemType.GOLD to 1) ),
+            {print("Cc")} , {print("Cc")})
 
 
         // --- 턴 넘기기 버튼 ---

@@ -33,6 +33,7 @@ import com.example.splendar.domain.game.GameState
 import com.example.splendar.domain.game.GemType
 import com.example.splendar.domain.game.request.SelectedToken
 import com.example.splendar.domain.game.response.SelectedPlayer
+import com.example.splendar.ui.CardPurchaseConfirmationScreen
 import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.CreateRoom // ⭐️ 분리된 UI import
@@ -295,6 +296,31 @@ class MainActivity : ComponentActivity() {
                                             CurrentTokenSelectScreen(
                                                 selectedTokens = selectedTokens,
                                                 onRemoveToken = onRemoveToken
+                                            )
+                                        }
+                                    )
+
+                                }
+
+                                if (currentGameView == GameScreen.BUY_CARD) {
+                                    SafeGreetingWithBorders(
+                                        nobleTiles = boardData.nobleTiles,
+                                        level3Cards = boardData.level3Cards,
+                                        level2Cards = boardData.level2Cards,
+                                        level1Cards = boardData.level1Cards,
+                                        tokens = boardData.tokens,
+                                        pickToken = handlePickToken,
+                                        players = boardData.playerState,
+                                        endTurn = {},
+                                        // 상태랑
+                                        // 메제시로 받은 값
+                                        null,
+                                        currentSelectCard = { a, b, c, d ->
+                                            CardPurchaseConfirmationScreen(
+                                                cardToBuy = a,
+                                                playerState = b,
+                                                onConfirmPurchase = c,
+                                                onCancel = d
                                             )
                                         }
                                     )
