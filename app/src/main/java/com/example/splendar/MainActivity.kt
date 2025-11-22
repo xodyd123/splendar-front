@@ -13,7 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -31,8 +30,12 @@ import com.example.splendar.domain.game.request.ChoicePlayer
 import com.example.splendar.domain.game.GameScreen
 import com.example.splendar.domain.game.GameState
 import com.example.splendar.domain.game.GemType
-import com.example.splendar.domain.game.request.SelectedToken
+import com.example.splendar.domain.game.request.SelectStatus
+import com.example.splendar.domain.game.request.SelectToken
+import com.example.splendar.domain.game.response.GameResponse
 import com.example.splendar.domain.game.response.SelectedPlayer
+import com.example.splendar.domain.token.SelectedToken
+import com.example.splendar.domain.token.SelectedTokenResponse
 import com.example.splendar.ui.CardPurchaseConfirmationScreen
 import com.example.splendar.ui.GameWaitingRoomScreen // ⭐️ 분리된 UI import
 import com.example.splendar.ui.RoomListScreen // ⭐️ 분리된 UI import
@@ -72,11 +75,15 @@ class MainActivity : ComponentActivity() {
 
     private var currentRoomPlayerId: String? by mutableStateOf(null)
 
-    private var gameState: GameState? by mutableStateOf(null)
+    private var gameState: GameResponse? by mutableStateOf(null)
 
     private var currentGameView: GameScreen by mutableStateOf(GameScreen.BOARD_VIEW)
 
     private var latestActionMessage: String? by mutableStateOf(null)
+
+    private var playerSelectedToken: SelectedToken? by mutableStateOf(null)
+
+    private var errorMessage : String? by mutableStateOf(value = null)
 
     val onMessageConsumed: () -> Unit = {
         latestActionMessage = null
@@ -137,16 +144,6 @@ class MainActivity : ComponentActivity() {
                             stompSession?.sendText(destination, jsonString)
                         }
                     }
-
-                    val selectedToken: (SelectedToken) -> Unit = { selectedToken ->
-                        lifecycleScope.launch {
-                            val jsonString = json.encodeToString(selectedToken)
-                            val destination = "/app/game-action/select-token/${selectedToken}"
-                            stompSession?.sendText(destination, jsonString)
-                        }
-
-                    }
-
 
 
                     when (currentScreen) {
@@ -241,17 +238,22 @@ class MainActivity : ComponentActivity() {
                             val playerId = currentRoomPlayerId
                             if (game != null && playerId != null) {
                                 // 1. GameRoom에서 보드 데이터 추출
-                                val boardData = game.extractBoardData()
+                                val boardData = game.data.extractBoardData()
 
                                 val handlePickToken: (GemType) -> Unit = { tokenType ->
                                     lifecycleScope.launch {
-                                        val selectedToken = SelectedToken(
-                                            playerId,
-                                            game.currentPlayer.playerId,
-                                            tokenType
+                                        val selectToken = SelectToken(
+                                            roomId = game.data.gameId,
+                                            playerId = playerId,
+//                                            game.data.currentPlayer.playerId,
+                                            token = tokenType,
+                                            isSelect = true,
+                                            selectStatus = SelectStatus.IS_SELECT
                                         )
-                                        val jsonString = json.encodeToString(selectedToken)
-                                        val destination = "/app/game-action/select-token/${selectedToken}"
+                                        val jsonString = json.encodeToString(selectToken)
+
+                                        val destination =
+                                            "/app/game-select-token/${game.data.gameId}"
                                         stompSession?.sendText(destination, jsonString)
                                     }
 
@@ -274,13 +276,13 @@ class MainActivity : ComponentActivity() {
                                         pickToken = handlePickToken,
                                         players = boardData.playerState,
                                         endTurn = {},
-                                        // 상태랑
-                                        // 메제시로 받은 값
-                                    )
+
+                                        )
 
                                 }
 
                                 if (currentGameView == GameScreen.TAKE_TOKENS) {
+                                    selectedToken(game.data.gameId)
                                     SafeGreetingWithBorders(
                                         nobleTiles = boardData.nobleTiles,
                                         level3Cards = boardData.level3Cards,
@@ -290,15 +292,15 @@ class MainActivity : ComponentActivity() {
                                         pickToken = handlePickToken,
                                         players = boardData.playerState,
                                         endTurn = {},
-                                        // 상태랑
-                                        // 메제시로 받은 값
                                         currentSelectToken = { selectedTokens, onRemoveToken ->
                                             CurrentTokenSelectScreen(
-                                                selectedTokens = selectedTokens,
-                                                onRemoveToken = onRemoveToken
+                                                playerSelectedToken = playerSelectedToken,
+                                                onRemoveToken = onRemoveToken,
+                                                errorMessage = errorMessage
                                             )
                                         }
                                     )
+
 
                                 }
 
@@ -345,15 +347,15 @@ class MainActivity : ComponentActivity() {
                             val game = gameState
                             val playerId = currentRoomPlayerId
 
-                            LaunchedEffect(game?.gameId) { // gameId가 바뀌면 재구독
+                            LaunchedEffect(game?.data?.gameId) { // gameId가 바뀌면 재구독
                                 if (game != null) {
-                                    subscribeToChoiceGame(game.gameId)
+                                    subscribeToChoiceGame(game.data.gameId)
                                 }
                             }
 
                             if (game != null && playerId != null) {
                                 GameChoiceScreen(
-                                    gameState = game,
+                                    gameState = game.data,
                                     currentRoomPlayerId = playerId,
                                     handleScreenChange = { screen -> currentScreen = screen },
                                     sendActionMessage = sendChoiceAction,
@@ -380,7 +382,7 @@ class MainActivity : ComponentActivity() {
 
             try {
                 stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
-                    val gamePlayerState = json.decodeFromString<GameState>(message)
+                    val gamePlayerState = json.decodeFromString<GameResponse>(message)
                     gameState = gamePlayerState
 
                 }
@@ -390,7 +392,7 @@ class MainActivity : ComponentActivity() {
                 throw e // ⭐️ 중요: 코루틴 시스템이 취소를 인지하도록 다시 던져줘야 함
             } catch (e: Exception) {
                 // 진짜 에러만 여기서 처리
-                Log.e("Error", "진짜 에러 발생: ${e.message}")
+                Log.e("Error", "진짜 에러 발생 initialGame: ${e.message}")
             }
         }
     }
@@ -443,6 +445,37 @@ class MainActivity : ComponentActivity() {
                     val selectedPlayer = json.decodeFromString<SelectedPlayer>(message)
                     latestActionMessage = selectedPlayer.splendorAction
                     currentGameView = selectedPlayer.playerAction
+
+                }
+            } catch (e: CancellationException) {
+                // 코루틴 취소는 정상적인 종료이므로 무시하거나 디버그 로그만 남김
+                Log.d("Info", "구독이 정상적으로 취소되었습니다.")
+                throw e // ⭐️ 중요: 코루틴 시스템이 취소를 인지하도록 다시 던져줘야 함
+            } catch (e: Exception) {
+                // 진짜 에러만 여기서 처리
+                Log.e("Error", "진짜 에러 발생: ${e.message}")
+            }
+        }
+    }
+
+    private fun selectedToken(roomId: Int) {
+        roomSubscriptionJob?.cancel()
+
+
+        roomSubscriptionJob = lifecycleScope.launch {
+            val specificRoomTopic = "/topic/game-select-token/$roomId"
+
+            try {
+                stompSession?.subscribeText(specificRoomTopic)?.collect { message: String ->
+
+                    val selectedToken = json.decodeFromString<SelectedTokenResponse>(message)
+                    val message = selectedToken.message
+                    if (selectedToken.status == "SUCCESS") {
+                        playerSelectedToken = selectedToken.data
+                    }
+                    if (message != null) {
+                        errorMessage = message
+                    }
 
                 }
             } catch (e: CancellationException) {
