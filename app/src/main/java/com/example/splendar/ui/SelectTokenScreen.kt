@@ -21,14 +21,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.splendar.domain.game.GemType
+import com.example.splendar.domain.game.request.SelectStatus
+import com.example.splendar.domain.game.request.SelectToken
 import com.example.splendar.domain.token.SelectedToken
 import kotlin.collections.forEach
 
 @Composable
 fun CurrentTokenSelectScreen(
     playerSelectedToken: SelectedToken?,
-    onRemoveToken: (GemType) -> Unit,
-    errorMessage: String?
+    onRemoveToken: (SelectToken) -> Unit,
+    errorMessage: String?,
+    playerId: String,
+    roomId: Int
+
 ) {
     val size: Int = playerSelectedToken?.token?.size ?: 0
     // 1. 텍스트 내용 결정: 에러 메시지가 null이 아니면 에러 메시지, 아니면 기본 텍스트
@@ -64,7 +69,14 @@ fun CurrentTokenSelectScreen(
                 // ⭐️ 아이콘을 Box로 감싸고 clickable 추가
                 Box(
                     modifier = Modifier
-                        .clickable { onRemoveToken(type.key) } // 클릭 시 해당 토큰 제거 요청
+                        .clickable {
+                            onRemoveToken(
+                                SelectToken(
+                                    roomId, playerId, type.key,
+                                    SelectStatus.NO_SELECT
+                                )
+                            )
+                        } // 클릭 시 해당 토큰 제거 요청
                 ) {
                     GemIcon(type = type.key, size = 32.dp)
                     // (선택 사항) 우측 상단에 작은 '-' 나 'x' 표시를 겹쳐서 보여주면 더 직관적입니다.

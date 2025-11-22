@@ -67,12 +67,7 @@ fun CardPurchaseConfirmationScreen(
             .padding(12.dp)
     ) {
         // [상단 텍스트 변경]
-        Text(
-            text = "카드 구매 확정",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color(0xFFE53935)
-        )
+
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -135,18 +130,5 @@ fun CardPurchaseConfirmationScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ⭐️ 구매/취소 버튼
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Button(
-                onClick = onConfirmPurchase,
-                enabled = canAfford,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047))
-            ) {
-                Text("구매 확정")
-            }
-            Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) {
-                Text("취소")
-            }
-        }
     }
 }

@@ -38,6 +38,7 @@ import com.example.splendar.domain.game.PlayerState
 import com.example.splendar.domain.game.StaticCard
 import com.example.splendar.domain.game.StaticNoble
 import com.example.splendar.domain.game.Tokens
+import com.example.splendar.domain.game.request.SelectToken
 import kotlin.collections.getOrNull
 
 fun getGemColor(type: GemType): Color {
@@ -394,8 +395,6 @@ fun SafeGreetingWithBorders(
     players: List<PlayerState>,
     endTurn: () -> Unit,
     currentSelectToken: (@Composable (
-        selectedTokens: List<GemType>,
-        onRemoveToken: (GemType) -> Unit
     ) -> Unit)? = null,
     currentSelectCard: (@Composable (
         cardToBuy: StaticCard,
@@ -403,7 +402,7 @@ fun SafeGreetingWithBorders(
         onConfirmPurchase: () -> Unit,
         onCancel: () -> Unit
     ) -> Unit)? = null,
-    test: List<GemType> = listOf<GemType>(GemType.GOLD)
+
 
 ) {
     Column(
@@ -455,7 +454,7 @@ fun SafeGreetingWithBorders(
                 PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
         }
-        currentSelectToken?.invoke(test, { gemType -> print("gg") })
+        currentSelectToken?.invoke()
         // ⭐️ 수정된 패널에 콜백 전달
 //        CurrentSelectionPanel(
 //            selectedTokens = selectedTokens,

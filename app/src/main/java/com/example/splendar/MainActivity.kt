@@ -247,7 +247,6 @@ class MainActivity : ComponentActivity() {
                                             playerId = playerId,
 //                                            game.data.currentPlayer.playerId,
                                             token = tokenType,
-                                            isSelect = true,
                                             selectStatus = SelectStatus.IS_SELECT
                                         )
                                         val jsonString = json.encodeToString(selectToken)
@@ -258,6 +257,21 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                 }
+
+                                val removeToken: (SelectToken) -> Unit = { token ->
+                                    lifecycleScope.launch {
+
+                                        val jsonString = json.encodeToString(token)
+
+                                        val destination =
+                                            "/app/game-select-token/${game.data.gameId}"
+                                        stompSession?.sendText(destination, jsonString)
+                                    }
+
+                                }
+
+
+
                                 if (currentGameView == GameScreen.BOARD_VIEW) {
                                     // 3. SafeGreetingWithBorders 컴포넌트 호출
 
@@ -292,11 +306,13 @@ class MainActivity : ComponentActivity() {
                                         pickToken = handlePickToken,
                                         players = boardData.playerState,
                                         endTurn = {},
-                                        currentSelectToken = { selectedTokens, onRemoveToken ->
+                                        currentSelectToken = {
                                             CurrentTokenSelectScreen(
                                                 playerSelectedToken = playerSelectedToken,
-                                                onRemoveToken = onRemoveToken,
-                                                errorMessage = errorMessage
+                                                onRemoveToken = removeToken,
+                                                errorMessage = errorMessage,
+                                                playerId = game.data.currentPlayer.playerId,
+                                                roomId = game.data.gameId,
                                             )
                                         }
                                     )
@@ -321,8 +337,7 @@ class MainActivity : ComponentActivity() {
                                             CardPurchaseConfirmationScreen(
                                                 cardToBuy = a,
                                                 playerState = b,
-                                                onConfirmPurchase = c,
-                                                onCancel = d
+                                                onDismiss = c
                                             )
                                         }
                                     )
@@ -472,6 +487,7 @@ class MainActivity : ComponentActivity() {
                     val message = selectedToken.message
                     if (selectedToken.status == "SUCCESS") {
                         playerSelectedToken = selectedToken.data
+                        errorMessage = null
                     }
                     if (message != null) {
                         errorMessage = message

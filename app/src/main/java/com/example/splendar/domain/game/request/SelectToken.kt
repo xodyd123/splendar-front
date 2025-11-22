@@ -10,10 +10,6 @@ data class SelectToken(
     val playerId: String,
     //val currentTurnId: String,
     val token: GemType,
-
-    @SerialName("isSelect")
-    val isSelect: Boolean = true,
-
     val selectStatus : SelectStatus
 ) {
 
