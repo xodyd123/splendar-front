@@ -2,7 +2,11 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    kotlin("plugin.serialization") version "2.0.21" // 직렬화 플러그인 추가
 }
+val krossbowVersion = "9.3.0"
+val okhttpVersion = "4.12.0"
+val coroutinesVersion = "1.7.3" // 프로젝트 Kotlin/Kotlinx 버전에 맞춰 조정
 
 android {
     namespace = "com.example.splendar"
@@ -50,6 +54,12 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation("org.hildan.krossbow:krossbow-stomp-core:${krossbowVersion}")
+    implementation("org.hildan.krossbow:krossbow-websocket-okhttp:${krossbowVersion}")
+    implementation("com.squareup.okhttp3:okhttp:${okhttpVersion}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${coroutinesVersion}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:${coroutinesVersion}")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
