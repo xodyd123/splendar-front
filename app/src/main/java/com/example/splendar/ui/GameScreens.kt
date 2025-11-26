@@ -33,11 +33,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.splendar.domain.game.GamePlayer
-import com.example.splendar.domain.game.GemType
+import com.example.splendar.domain.token.GemType
 import com.example.splendar.domain.game.PlayerState
-import com.example.splendar.domain.game.StaticCard
-import com.example.splendar.domain.game.StaticNoble
-import com.example.splendar.domain.game.Tokens
+import com.example.splendar.domain.card.StaticCard
+import com.example.splendar.domain.card.StaticNoble
+import com.example.splendar.domain.token.Tokens
 import com.example.splendar.domain.game.request.SelectToken
 import kotlin.collections.getOrNull
 
@@ -64,7 +64,7 @@ fun getCardLevelColor(level: Int): Color {
 @Composable
 fun TokenStackComponent(
     token: Tokens,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     // Box를 사용하여 원형 모양과 텍스트를 포함
@@ -72,7 +72,9 @@ fun TokenStackComponent(
         modifier = modifier
             .size(token.size) // Tokens 데이터의 size를 활용
             .background(token.color, CircleShape)
-            .clickable(onClick = onClick) // 클릭 이벤트 처리
+            .clickable(enabled = onClick != null) {
+                onClick?.invoke() // ⭐️ 클릭 이벤트 발생 시 함수를 호출
+            }
             .padding(4.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -89,7 +91,7 @@ fun TokenStackComponent(
 @Composable
 fun HorizontalStackCirclesPreview(
     tokens: List<Tokens>,
-    pickToken: (gemType: GemType) -> Unit
+    pickToken: ((gemType: GemType) -> Unit)?
 ) {
     // Column을 사용하여 토큰 더미들을 수직으로 배치
 
@@ -103,7 +105,9 @@ fun HorizontalStackCirclesPreview(
         tokens.forEachIndexed { index, token ->
             TokenStackComponent(
                 token = token,
-                onClick = { pickToken(token.gemType) } // 클릭 시 해당 토큰의 인덱스를 전달
+                onClick = {
+                    pickToken?.invoke(token.gemType)
+                }
             )
         }
     }
@@ -169,25 +173,25 @@ fun CostListDisplay(
         }
     }
 }
+
 @Composable
 fun SplendorCard(
     card: StaticCard,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {} // 클릭 이벤트 핸들러 추가
+    onClick: (Int) -> Unit
 ) {
     Box(
         modifier = modifier
             .size(width = 70.dp, height = 100.dp)
             .background(Color.White, RoundedCornerShape(8.dp))
-            .border(2.dp, getCardLevelColor(card.level), RoundedCornerShape(8.dp)) // 레벨 색상 적용
-            .clickable(onClick = onClick) // 클릭 이벤트 적용
+            .border(2.dp, getCardLevelColor(card.level), RoundedCornerShape(8.dp))
+            .clickable(onClick = { onClick(card.id) })
             .padding(6.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // [상단] 점수 (왼쪽) + 보너스 보석 (오른쪽)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -205,17 +209,6 @@ fun SplendorCard(
                 }
                 GemIcon(type = card.bonusGem, size = 20.dp)
             }
-
-            // [중간] 일러스트 자리
-//            Box(
-//                modifier = Modifier
-//                    .fillMaxWidth()
-//                    .weight(1f)
-//                    .padding(vertical = 4.dp)
-//                    .background(getGemColor(card.bonusGem).copy(alpha = 0.2f))
-//            )
-
-            // [하단] 구매 비용
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
@@ -233,7 +226,6 @@ fun SplendorCard(
     }
 }
 
-// 👑 귀족 타일 컴포넌트
 @Composable
 fun NobleTile(
     noble: StaticNoble,
@@ -241,7 +233,7 @@ fun NobleTile(
 ) {
     Box(
         modifier = modifier
-            .size(70.dp) // 정사각형
+            .size(70.dp)
             .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
             .border(2.dp, Color(0xFFFFD700), RoundedCornerShape(8.dp))
             .padding(6.dp)
@@ -259,12 +251,11 @@ fun NobleTile(
                 color = Color.Black
             )
 
-            // 요구 비용 (개별 필드를 Map 형태로 일시 구성하여 순회)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.wrapContentWidth()
             ) {
-                // 새로운 비용 리스트를 생성합니다.
+
                 val costs = listOf(
                     GemType.DIAMOND to noble.costDiamond,
                     GemType.SAPPHIRE to noble.costSapphire,
@@ -272,8 +263,6 @@ fun NobleTile(
                     GemType.RUBY to noble.costRuby,
                     GemType.ONYX to noble.costOnyx
                 )
-
-                // 비용이 0보다 큰 것만 필터링하여 표시합니다.
                 costs.filter { it.second > 0 }.forEach { (type, cost) ->
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(text = cost.toString(), fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -285,18 +274,17 @@ fun NobleTile(
     }
 }
 
-// 카드 한 줄을 그리는 헬퍼 컴포저블
 @Composable
 fun CardRow(
     levelText: String,
     cards: List<StaticCard>,
-    levelColor: Color
+    levelColor: Color,
+    onClick: ((Int) -> Unit)?
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 덱(Deck) 표시 (클릭하여 덱에서 가져오기 기능 등을 붙일 수 있음)
         Box(
             modifier = Modifier
                 .size(width = 80.dp, height = 80.dp)
@@ -306,10 +294,8 @@ fun CardRow(
         ) {
             Text(text = levelText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         }
-
-        // 바닥에 깔린 카드 4장
         cards.forEach { card ->
-            SplendorCard(card = card)
+            SplendorCard(card = card, onClick = { onClick?.invoke(card.id) })
         }
     }
 }
@@ -321,13 +307,12 @@ fun PlayerStatusPanel(
 ) {
     Column(
         modifier = modifier
-            .width(110.dp) // 폭을 약간 늘림
-            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp)) // 배경 추가
+            .width(110.dp)
+            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
             .border(1.dp, Color.Gray, RoundedCornerShape(8.dp))
             .padding(8.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        // [기존 코드] 닉네임, 점수
         Text(
             text = playerState.player.playerName,
             fontWeight = FontWeight.Bold,
@@ -341,26 +326,21 @@ fun PlayerStatusPanel(
 
         Spacer(Modifier.height(8.dp))
 
-        // [기존 코드] 보너스 표시
         Text("카드 보너스:", fontSize = 11.sp, color = Color.Gray)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             playerState.bonuses.filter { it.value > 0 }.forEach { (type, count) ->
-                GemIcon(type = type, size = 10.dp) // 숫자 대신 아이콘만 나열하거나
-                // 공간이 좁으면 텍스트 생략
+                GemIcon(type = type, size = 10.dp)
+
             }
         }
 
         Spacer(Modifier.height(8.dp))
-        Divider()
         Spacer(Modifier.height(8.dp))
-
-        // 💎 [수정됨] 보유 토큰 표시 로직
         Text("보유 토큰:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
         if (playerState.tokens.values.sum() == 0) {
             Text("- 없음 -", fontSize = 10.sp, color = Color.Gray)
         } else {
-            // 보유한 토큰만 리스트로 표시
             playerState.tokens.filter { it.value > 0 }.forEach { (type, count) ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -372,8 +352,6 @@ fun PlayerStatusPanel(
                 }
             }
         }
-
-        // 토큰 총 개수 (10개 제한 확인용)
         Spacer(modifier = Modifier.height(4.dp))
         val totalTokens = playerState.tokens.values.sum()
         Text(
@@ -384,6 +362,7 @@ fun PlayerStatusPanel(
         )
     }
 }
+
 @Composable
 fun SafeGreetingWithBorders(
     nobleTiles: List<StaticNoble>,
@@ -391,7 +370,8 @@ fun SafeGreetingWithBorders(
     level2Cards: List<StaticCard>,
     level1Cards: List<StaticCard>,
     tokens: List<Tokens>,
-    pickToken: (GemType) -> Unit,
+    pickToken: ((GemType) -> Unit)?,
+    pickCard: ((Int) -> Unit)?,
     players: List<PlayerState>,
     endTurn: () -> Unit,
     currentSelectToken: (@Composable (
@@ -399,7 +379,6 @@ fun SafeGreetingWithBorders(
     currentSelectCard: (@Composable (
         cardToBuy: StaticCard,
         playerState: PlayerState,
-        onConfirmPurchase: () -> Unit,
         onCancel: () -> Unit
     ) -> Unit)? = null,
 
@@ -413,66 +392,58 @@ fun SafeGreetingWithBorders(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. 중앙 정렬된 보드 영역 (3분할 Row)
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-
-            // 왼쪽 플레이어 패널 (첫 번째 플레이어)
             players.getOrNull(0)?.let { pState ->
                 PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
 
-            // 2. 중앙 게임 보드 Column
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f) // 남은 공간을 중앙 보드가 사용
+                Modifier.weight(1f), Arrangement.spacedBy(16.dp), Alignment.CenterHorizontally
             ) {
-                // 1. 귀족 타일 Row
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     nobleTiles.forEach { noble ->
                         NobleTile(noble = noble)
                     }
                 }
-
-                // 2. 카드 덱 및 깔린 카드들
-                CardRow(levelText = "L3", cards = level3Cards, levelColor = getCardLevelColor(3))
-                CardRow(levelText = "L2", cards = level2Cards, levelColor = getCardLevelColor(2))
-                CardRow(levelText = "L1", cards = level1Cards, levelColor = getCardLevelColor(1))
+                CardRow(
+                    levelText = "L3",
+                    cards = level3Cards,
+                    levelColor = getCardLevelColor(3),
+                    pickCard
+                )
+                CardRow(
+                    levelText = "L2",
+                    cards = level2Cards,
+                    levelColor = getCardLevelColor(2),
+                    pickCard
+                )
+                CardRow(
+                    levelText = "L1",
+                    cards = level1Cards,
+                    levelColor = getCardLevelColor(1),
+                    pickCard
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
-
-                // 3. 토큰
                 HorizontalStackCirclesPreview(tokens = tokens, pickToken = pickToken)
             }
-
-            // 오른쪽 플레이어 패널 (두 번째 플레이어)
             players.getOrNull(1)?.let { pState ->
                 PlayerStatusPanel(playerState = pState)
             } ?: Spacer(modifier = Modifier.width(100.dp))
         }
         currentSelectToken?.invoke()
-        // ⭐️ 수정된 패널에 콜백 전달
-//        CurrentSelectionPanel(
-//            selectedTokens = selectedTokens,
-//            onRemoveToken = onRemoveToken // 전달
-//        )
         currentSelectCard?.invoke(StaticCard(1, GemType.GOLD, 3, 1 ,
-            3,5,4,6,7),
+                3,5,4,6,7),
             PlayerState(GamePlayer("fr" ,"22"),5, mapOf(GemType.GOLD to 1) ,  mapOf(GemType.GOLD to 1) ),
-            { print("Cc") }, { print("Cc") })
-
-
-        // --- 턴 넘기기 버튼 ---
+            { print("Cc") }, )
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = endTurn,
-            // 선택한 토큰이 없으면 버튼을 비활성화하거나 색상을 흐리게 할 수 있습니다.
-            //  enabled = selectedTokens.isNotEmpty(),
             modifier = Modifier
                 .fillMaxWidth(0.6f)
                 .height(56.dp),

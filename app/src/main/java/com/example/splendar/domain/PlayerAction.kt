@@ -1,4 +1,3 @@
-package com.example.splendar.domain
 
 enum class PlayerAction {
     // 1. 토큰 가져오기 (3개 다른 색 or 2개 같은 색)

@@ -1,4 +1,4 @@
-package com.example.splendar.domain
+package com.example.splendar.domain.game
 
 data class GameUser(
     val id: String,
