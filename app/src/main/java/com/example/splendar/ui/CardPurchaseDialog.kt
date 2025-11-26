@@ -2,6 +2,7 @@ package com.example.splendar.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,17 +24,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.splendar.domain.game.GemType
+import com.example.splendar.domain.token.GemType
 import com.example.splendar.domain.game.PlayerState
-import com.example.splendar.domain.game.StaticCard
+import com.example.splendar.domain.card.StaticCard
 
 
 @Composable
 fun CardPurchaseConfirmationScreen(
-    cardToBuy: StaticCard, // 구매할 카드 정보
-    playerState: PlayerState, // 현재 플레이어의 자원 정보
-    onConfirmPurchase: () -> Unit, // 구매 확정 시 호출될 액션
-    onCancel: () -> Unit // 취소 시 호출될 액션
+    cardToBuy: StaticCard,
+    playerState: PlayerState,
+    onDismiss: () -> Unit
 ) {
     // 1. 필요한 비용 계산
     val costs = listOf(
@@ -41,9 +42,8 @@ fun CardPurchaseConfirmationScreen(
         GemType.EMERALD to cardToBuy.costEmerald,
         GemType.RUBY to cardToBuy.costRuby,
         GemType.ONYX to cardToBuy.costOnyx
-    ).filter { it.second > 0 } // 비용이 0인 것은 제외
+    ).filter { it.second > 0 }
 
-    // 2. 할인 및 구매 가능 여부 계산
     var totalMissingTokens = 0
     costs.forEach { (type, cost) ->
         val discount = playerState.bonuses[type] ?: 0
@@ -56,7 +56,7 @@ fun CardPurchaseConfirmationScreen(
     val playerGold = playerState.tokens[GemType.GOLD] ?: 0
     val canAfford = playerGold >= totalMissingTokens
 
-    // 3. UI 구성 (기존 CurrentTokenSelectScreen 레이아웃 재활용)
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -66,24 +66,25 @@ fun CardPurchaseConfirmationScreen(
             .border(1.dp, Color(0xFFFDD835), RoundedCornerShape(12.dp))
             .padding(12.dp)
     ) {
-        // [상단 텍스트 변경]
-
-
         Spacer(modifier = Modifier.height(12.dp))
 
-        // ⭐️ 구매할 카드 표시
-        SplendorCard(card = cardToBuy, modifier = Modifier.size(width = 60.dp, height = 90.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
+        SplendorCard(
+            card = cardToBuy,
+            onClick = { clickedCardId ->
 
-        // ⭐️ 필요 비용 및 할인 목록 표시
+                println("인라인 클릭: $clickedCardId")
+            }
+        )
+        Text("아이콘을 클릭하면 다시 내려놓습니다", fontSize = 10.sp, color = Color.Gray)
+
+
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("지불해야 할 최종 비용:", fontSize = 12.sp, color = Color.Gray)
 
-            // 비용 항목 나열
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
@@ -93,21 +94,17 @@ fun CardPurchaseConfirmationScreen(
                     val netCost = maxOf(0, originalCost - discount)
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // 아이콘
                         Box(contentAlignment = Alignment.Center) {
                             GemIcon(type = type, size = 32.dp)
-                            // 할인 적용 시 작은 텍스트 추가
                             if (discount > 0) {
                                 Text("-$discount", fontSize = 8.sp, color = Color.White, fontWeight = FontWeight.Bold)
                             }
                         }
-                        // 최종 비용 텍스트
                         Text(
                             text = netCost.toString(),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.Black
-                            //if (playerHas < netCost && type != GemType.GOLD) Color.Red else Color.Black
                         )
                     }
                 }
@@ -116,7 +113,6 @@ fun CardPurchaseConfirmationScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // ⭐️ 구매 가능 여부 메시지
         Text(
             text = when {
                 canAfford -> "구매 가능! 토큰이 자동 차감됩니다."

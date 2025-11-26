@@ -1,5 +1,6 @@
-package com.example.splendar.domain.game
+package com.example.splendar.domain.card
 
+import com.example.splendar.domain.token.GemType
 import kotlinx.serialization.Serializable
 
 @Serializable

@@ -1,11 +1,11 @@
-package com.example.splendar.domain
+package com.example.splendar.domain.game
 
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class GameRooms(
     val roomName: String,
-    val roomId: Long,
+    val roomId: Int,
     val roomStatus: RoomStatus,
     val hostName: String,
     val playerCount: Int,

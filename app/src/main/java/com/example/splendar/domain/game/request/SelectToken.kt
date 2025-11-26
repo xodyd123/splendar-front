@@ -1,6 +1,6 @@
 package com.example.splendar.domain.game.request
 
-import com.example.splendar.domain.game.GemType
+import com.example.splendar.domain.token.GemType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 

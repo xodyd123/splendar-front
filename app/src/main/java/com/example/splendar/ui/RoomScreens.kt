@@ -21,8 +21,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.splendar.domain.GameRooms // GameRooms data class 임포트 필요
-import com.example.splendar.domain.GameUser // GameUser data class 임포트 필요
+import com.example.splendar.domain.game.GameRooms // GameRooms data class 임포트 필요
+import com.example.splendar.domain.game.GameUser // GameUser data class 임포트 필요
 import kotlinx.coroutines.delay
 
 
@@ -189,8 +189,8 @@ fun PlayerSlots(users: List<GameUser>) {
 
 @Composable
 fun RoomListScreen(
-    rooms: List<GameRooms>, // SnapshotStateList 대신 일반 List를 받는 것이 UI 분리에 더 적합
-    onCreateRoomClick: () -> Unit, // Enum<AppScreen> 대신 Unit을 받도록 콜백 변경 (화면 이동 로직은 Activity에 남김)
+    rooms: List<GameRooms>,
+    onCreateRoomClick: () -> Unit,
     onJoinRoomClick: (GameRooms) -> Unit
 ) {
     Box(
@@ -212,10 +212,10 @@ fun RoomListScreen(
                 )
 
                 Button(
-                    onClick = onCreateRoomClick, // 콜백 호출
+                    onClick = onCreateRoomClick,
                     modifier = Modifier
                         .padding(start = 16.dp)
-                        .padding(bottom = 24.dp) // 텍스트와 높이를 맞춤
+                        .padding(bottom = 24.dp)
                 ) {
                     Text("방 만들기")
                 }
@@ -302,7 +302,7 @@ fun CreateRoom(onRoomCreated: (String, String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun JoinRoom(onRoomJoined: (String) -> Unit) { // 콜백 이름 변경 권장 (onRoomCreated -> onRoomJoined)
+fun JoinRoom(onRoomJoined: (String) -> Unit) {
 
     var nickname by remember { mutableStateOf("") }
 
@@ -313,7 +313,7 @@ fun JoinRoom(onRoomJoined: (String) -> Unit) { // 콜백 이름 변경 권장 (o
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("방 접속", style = MaterialTheme.typography.headlineSmall) // 제목 추가
+        Text("방 접속", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(16.dp))
 
         TextField(

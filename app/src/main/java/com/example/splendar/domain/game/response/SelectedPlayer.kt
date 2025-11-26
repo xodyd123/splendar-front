@@ -1,6 +1,5 @@
 package com.example.splendar.domain.game.response
 
-import com.example.splendar.domain.PlayerAction
 import com.example.splendar.domain.game.GameScreen
 import kotlinx.serialization.Serializable
 
